@@ -417,6 +417,56 @@ def test_detect_conflicts_none_when_times_differ(owner):
 
 
 # ---------------------------------------------------------------------------
+# Edge cases: empty inputs, single task, repeated completion
+# ---------------------------------------------------------------------------
+
+
+def test_pet_with_no_tasks_handled_gracefully(owner):
+    """A pet with no tasks should not crash any algorithmic method."""
+    empty = Pet("Newbie")
+    assert empty.tasks == []
+    sched = Scheduler(owner, empty.tasks)
+    assert sched.sort_by_time(empty.tasks) == []
+    assert sched.filter_tasks(empty.tasks, pet_name="Newbie") == []
+    assert sched.detect_conflicts(empty.tasks) == []
+    plan = sched.build_plan()
+    assert plan.scheduled == [] and plan.skipped == []
+
+
+def test_sort_by_time_single_task_is_trivially_sorted(owner):
+    tasks = [Task("only", 10, fixed_time="09:00")]
+    assert [t.title for t in Scheduler(owner).sort_by_time(tasks)] == ["only"]
+
+
+def test_sort_by_time_empty_list(owner):
+    assert Scheduler(owner).sort_by_time([]) == []
+
+
+def test_completing_daily_task_twice_spawns_two_future_tasks():
+    """Each completion of a recurring task creates the next occurrence."""
+    pet = Pet("Mochi")
+    walk = Task("walk", 30, frequency="daily", due_date=date(2026, 6, 26))
+    pet.add_task(walk)
+
+    first = pet.complete_task(walk)          # -> due 2026-06-27
+    second = pet.complete_task(first)        # -> due 2026-06-28
+    assert first.due_date == date(2026, 6, 27)
+    assert second.due_date == date(2026, 6, 28)
+    assert len(pet.tasks) == 3  # original + two spawned occurrences
+
+
+def test_conflict_across_different_pets_same_time(owner):
+    """Conflicts are flagged even when the two tasks belong to different pets."""
+    mochi, luna = Pet("Mochi"), Pet("Luna")
+    mochi.add_task(Task("feed dog", 10, fixed_time="08:00"))
+    luna.add_task(Task("feed cat", 10, fixed_time="08:00"))
+    all_tasks = mochi.tasks + luna.tasks
+    warnings = Scheduler(owner).detect_conflicts(all_tasks)
+    assert len(warnings) == 1
+    assert "feed dog" in warnings[0] and "feed cat" in warnings[0]
+
+
+# ---------------------------------------------------------------------------
 # Plan helpers
 # ---------------------------------------------------------------------------
 

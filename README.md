@@ -69,19 +69,43 @@ on a Monday.
 
 ## 🧪 Testing PawPal+
 
+Run the full automated test suite from the project root:
+
 ```bash
-# Run the full test suite:
-pytest
-
-# Run with coverage:
-pytest --cov
+python -m pytest
 ```
 
-Sample test output:
+**What the tests cover** (`tests/test_pawpal.py`, 50 tests):
+
+- **Time helpers** — `parse_time`/`format_time` round-trips and rejection of bad input
+- **Domain model** — priority ordering, `is_fixed`, `is_active_on`, `mark_complete`, `Pet.add_task`
+- **Sorting correctness** — `sort_by_time` returns tasks in chronological order (flexible tasks last); priority sort with duration tie-breaks
+- **Filtering** — `filter_tasks` by pet name, by completion status, and combined
+- **Recurrence logic** — completing a daily task creates a new task due the next day; weekly advances a week; one-off tasks don't regenerate; completing twice spawns two future tasks
+- **Conflict detection** — `detect_conflicts` flags duplicate fixed times (including across different pets) and stays quiet when times differ
+- **Scheduling pipeline** — budget filtering, fixed-time anchoring/collisions, buffers, fixed-time window checks, completed-task exclusion, and full `build_plan` integration
+- **Edge cases** — a pet with no tasks, empty/single-item lists, zero available time
+
+Successful run:
 
 ```
-# Paste your pytest output here
+============================= test session starts =============================
+platform win32 -- Python 3.14.4, pytest-9.1.1, pluggy-1.6.0
+rootdir: C:\Users\Erik Gallardo\Desktop\codepath-ai\ai110-module2show-pawpal-starter
+plugins: anyio-4.14.1
+collected 50 items
+
+tests\test_pawpal.py ..................................................  [100%]
+
+============================= 50 passed in 0.06s ==============================
 ```
+
+**Confidence level: ★★★★☆ (4/5).** The core scheduling, sorting, filtering,
+recurrence, and conflict logic are well covered by 50 passing tests, including
+the main edge cases. I held back the fifth star because conflict detection only
+catches exact same-time clashes (duration overlaps are handled separately in
+`assign_times`), recurrence date math hasn't been stress-tested across DST or
+leap-year boundaries, and there are no UI-level tests for `app.py`.
 
 ## 📐 Smarter Scheduling
 
