@@ -44,15 +44,28 @@ pip install -r requirements.txt
 
 ## 🖥️ Sample Output
 
-Paste a sample of your app's CLI or Streamlit output here so a reader can see what a generated plan looks like:
+Running the terminal testing ground (`python main.py`) produces the plan below.
+It builds a day for one owner (Jordan) with two pets (Mochi the dog, Luna the
+cat) and six tasks, then schedules them around their constraints:
 
 ```
-# e.g.:
-# Daily plan for Biscuit (Golden Retriever):
-#   08:00 — Morning walk (30 min) [priority: high]
-#   09:00 — Feeding (10 min) [priority: high]
-#   ...
+================================================
+  Today's Schedule for Jordan
+  Pets: Mochi, Luna
+================================================
+  08:00-08:30  Morning walk  (Mochi, 30 min, high)
+  08:30-08:45  Play time  (Luna, 15 min, medium)
+  08:45-08:55  Litter cleanup  (Luna, 10 min, low)
+  09:00-09:10  Feeding  (Mochi, 10 min, high)
+  09:10-09:30  Training session  (Mochi, 20 min, medium)
+================================================
+Plan for Jordan (Mon): scheduled 5 task(s) using 85 of 120 available minutes.
 ```
+
+Notice that the two fixed-time tasks (Litter cleanup at 08:45, Feeding at
+09:00) are anchored to their times while the flexible tasks fill the gaps
+around them, and the Sunday-only "Weekly grooming" task is correctly left out
+on a Monday.
 
 ## 🧪 Testing PawPal+
 

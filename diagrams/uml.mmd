@@ -1,7 +1,7 @@
 classDiagram
     %% PawPal+ domain model
     %% Core flow: Owner + Pet profile -> Tasks -> Scheduler -> Plan
-    %% Keep this file in sync with the Python implementation.
+    %% Keep this file in sync with pawpal_system.py.
 
     class Priority {
         <<enumeration>>
@@ -28,9 +28,11 @@ classDiagram
         +int duration_minutes
         +Priority priority
         +str category
+        +str pet_name
         +str fixed_time
-        +str recurrence
-        +bool is_fixed() bool
+        +tuple~str~ days
+        +is_fixed() bool
+        +is_active_on(day_of_week) bool
     }
 
     class ScheduledTask {
@@ -40,28 +42,37 @@ classDiagram
         +str reason
     }
 
+    class SkippedTask {
+        +Task task
+        +str reason
+    }
+
     class Plan {
         +list~ScheduledTask~ scheduled
-        +list~Task~ skipped
+        +list~SkippedTask~ skipped
         +str explanation
-        +int total_minutes() int
-        +str summary() str
+        +total_minutes() int
+        +summary() str
     }
 
     class Scheduler {
         +Owner owner
         +list~Task~ tasks
-        +Plan build_plan() Plan
-        +list~Task~ sort_tasks(list~Task~) list~Task~
-        +list~Task~ filter_by_budget(list~Task~) list~Task~
-        +list~ScheduledTask~ assign_times(list~Task~) list~ScheduledTask~
+        +filter_by_recurrence(tasks, day_of_week) list~Task~
+        +sort_tasks(tasks) list~Task~
+        +filter_by_budget(tasks) tuple
+        +assign_times(tasks) tuple
+        +build_plan(day_of_week) Plan
     }
 
     Owner "1" --> "0..*" Pet : owns
     Owner "1" --> "0..*" Task : creates
+    Task --> Pet : for (pet_name)
     Task --> Priority : has
     Scheduler --> Owner : uses
     Scheduler --> Task : schedules
     Scheduler --> Plan : produces
     Plan "1" --> "0..*" ScheduledTask : contains
+    Plan "1" --> "0..*" SkippedTask : contains
     ScheduledTask --> Task : wraps
+    SkippedTask --> Task : wraps
