@@ -1,15 +1,67 @@
 classDiagram
-    %% Replace the placeholders below with your actual classes, attributes, methods, and relationships.
-    %% Keep this file updated so it matches your final implementation.
+    %% PawPal+ domain model
+    %% Core flow: Owner + Pet profile -> Tasks -> Scheduler -> Plan
+    %% Keep this file in sync with the Python implementation.
 
-    class ClassName {
-        +type attribute
-        +method() returnType
+    class Priority {
+        <<enumeration>>
+        LOW
+        MEDIUM
+        HIGH
     }
 
-    class AnotherClass {
-        +type attribute
-        +method() returnType
+    class Owner {
+        +str name
+        +int available_minutes
+        +str start_time
+        +list~str~ preferences
     }
 
-    ClassName --> AnotherClass : relationship
+    class Pet {
+        +str name
+        +str species
+        +list~str~ needs
+    }
+
+    class Task {
+        +str title
+        +int duration_minutes
+        +Priority priority
+        +str category
+        +str fixed_time
+        +str recurrence
+        +bool is_fixed() bool
+    }
+
+    class ScheduledTask {
+        +Task task
+        +str start_time
+        +str end_time
+        +str reason
+    }
+
+    class Plan {
+        +list~ScheduledTask~ scheduled
+        +list~Task~ skipped
+        +str explanation
+        +int total_minutes() int
+        +str summary() str
+    }
+
+    class Scheduler {
+        +Owner owner
+        +list~Task~ tasks
+        +Plan build_plan() Plan
+        +list~Task~ sort_tasks(list~Task~) list~Task~
+        +list~Task~ filter_by_budget(list~Task~) list~Task~
+        +list~ScheduledTask~ assign_times(list~Task~) list~ScheduledTask~
+    }
+
+    Owner "1" --> "0..*" Pet : owns
+    Owner "1" --> "0..*" Task : creates
+    Task --> Priority : has
+    Scheduler --> Owner : uses
+    Scheduler --> Task : schedules
+    Scheduler --> Plan : produces
+    Plan "1" --> "0..*" ScheduledTask : contains
+    ScheduledTask --> Task : wraps
