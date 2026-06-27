@@ -8,6 +8,7 @@ Core flow: Owner + Pet profile -> Tasks -> Scheduler -> Plan
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field, replace
 from datetime import date, timedelta
 from enum import IntEnum
@@ -235,6 +236,47 @@ class Scheduler:
             key=lambda t: parse_time(t.fixed_time) if t.fixed_time else 24 * 60,
         )
 
+    def sort_by_priority_then_time(
+        self, tasks: list[Task] | None = None
+    ) -> list[Task]:
+        """Sort by priority (high first), then chronologically by fixed_time.
+
+        This is the "priority-based scheduling" order: the most important tasks
+        come first, and ties are broken by the earlier clock time (flexible,
+        untimed tasks sort last). Title is a final tie-break for stable output.
+        """
+        items = self.tasks if tasks is None else tasks
+        return sorted(
+            items,
+            key=lambda t: (
+                -int(t.priority),
+                parse_time(t.fixed_time) if t.fixed_time else 24 * 60,
+                t.title,
+            ),
+        )
+
+    def next_available_slot(
+        self, duration_minutes: int, day_of_week: str | None = None
+    ) -> str | None:
+        """Return the earliest "HH:MM" a new task of `duration_minutes` would fit.
+
+        Builds today's plan, then searches the gaps around already-scheduled
+        tasks (honoring the buffer) for the first opening big enough. Returns
+        None if there is no room left in the owner's window. Useful for "when
+        can I squeeze in a 30-minute vet call?" style questions.
+        """
+        plan = self.build_plan(day_of_week=day_of_week)
+        window_start = parse_time(self.owner.start_time)
+        window_end = window_start + self.owner.available_minutes
+        occupied = [
+            (parse_time(s.start_time), parse_time(s.end_time))
+            for s in plan.scheduled
+        ]
+        start = self._find_slot(
+            duration_minutes, window_start, window_end, occupied
+        )
+        return format_time(start) if start is not None else None
+
     def filter_tasks(
         self,
         tasks: list[Task] | None = None,
@@ -441,3 +483,103 @@ class Scheduler:
             for sk in plan.skipped:
                 parts.append(f"  - {sk.task.title}: {sk.reason}")
         return "\n".join(parts)
+
+
+# ---------------------------------------------------------------------------
+# Persistence (data.json)
+# ---------------------------------------------------------------------------
+# JSON can't serialize our dataclasses, the Priority enum, or date objects
+# directly, so we convert to/from plain dicts by hand. Enum -> int,
+# date -> ISO string, tuple -> list; everything reverses on load.
+
+
+def _task_to_dict(task: Task) -> dict:
+    """Convert a Task into a JSON-safe dict."""
+    return {
+        "title": task.title,
+        "duration_minutes": task.duration_minutes,
+        "priority": int(task.priority),
+        "category": task.category,
+        "pet_name": task.pet_name,
+        "fixed_time": task.fixed_time,
+        "days": list(task.days) if task.days else None,
+        "completed": task.completed,
+        "frequency": task.frequency,
+        "due_date": task.due_date.isoformat() if task.due_date else None,
+    }
+
+
+def _task_from_dict(data: dict) -> Task:
+    """Rebuild a Task from a dict produced by _task_to_dict()."""
+    return Task(
+        title=data["title"],
+        duration_minutes=data["duration_minutes"],
+        priority=Priority(data.get("priority", int(Priority.MEDIUM))),
+        category=data.get("category", "general"),
+        pet_name=data.get("pet_name"),
+        fixed_time=data.get("fixed_time"),
+        days=tuple(data["days"]) if data.get("days") else None,
+        completed=data.get("completed", False),
+        frequency=data.get("frequency", "none"),
+        due_date=date.fromisoformat(data["due_date"]) if data.get("due_date") else None,
+    )
+
+
+def _pet_to_dict(pet: Pet) -> dict:
+    """Convert a Pet (and its tasks) into a JSON-safe dict."""
+    return {
+        "name": pet.name,
+        "species": pet.species,
+        "needs": list(pet.needs),
+        "tasks": [_task_to_dict(t) for t in pet.tasks],
+    }
+
+
+def _pet_from_dict(data: dict) -> Pet:
+    """Rebuild a Pet (and its tasks) from a dict."""
+    pet = Pet(
+        name=data["name"],
+        species=data.get("species", "dog"),
+        needs=list(data.get("needs", [])),
+    )
+    pet.tasks = [_task_from_dict(t) for t in data.get("tasks", [])]
+    return pet
+
+
+def _owner_to_dict(owner: Owner) -> dict:
+    """Convert an Owner into a JSON-safe dict."""
+    return {
+        "name": owner.name,
+        "available_minutes": owner.available_minutes,
+        "start_time": owner.start_time,
+        "preferences": list(owner.preferences),
+    }
+
+
+def _owner_from_dict(data: dict) -> Owner:
+    """Rebuild an Owner from a dict."""
+    return Owner(
+        name=data["name"],
+        available_minutes=data.get("available_minutes", 120),
+        start_time=data.get("start_time", "08:00"),
+        preferences=list(data.get("preferences", [])),
+    )
+
+
+def save_to_json(path: str, owner: Owner, pets: list[Pet]) -> None:
+    """Save the owner and all pets (with their tasks) to a JSON file."""
+    data = {
+        "owner": _owner_to_dict(owner),
+        "pets": [_pet_to_dict(p) for p in pets],
+    }
+    with open(path, "w", encoding="utf-8") as fh:
+        json.dump(data, fh, indent=2)
+
+
+def load_from_json(path: str) -> tuple[Owner, list[Pet]]:
+    """Load the owner and pets from a JSON file written by save_to_json()."""
+    with open(path, encoding="utf-8") as fh:
+        data = json.load(fh)
+    owner = _owner_from_dict(data["owner"])
+    pets = [_pet_from_dict(p) for p in data.get("pets", [])]
+    return owner, pets

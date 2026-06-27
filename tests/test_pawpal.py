@@ -19,7 +19,9 @@ from pawpal_system import (
     Scheduler,
     Task,
     format_time,
+    load_from_json,
     parse_time,
+    save_to_json,
 )
 
 
@@ -493,3 +495,96 @@ def test_plan_summary_lists_tasks():
     assert "08:00-08:30" in summary
     assert "Walk" in summary
     assert "high" in summary
+
+
+# ---------------------------------------------------------------------------
+# Challenge 3: priority-then-time sorting
+# ---------------------------------------------------------------------------
+
+
+def test_sort_by_priority_then_time(owner):
+    tasks = [
+        Task("low early", 10, Priority.LOW, fixed_time="07:00"),
+        Task("high late", 10, Priority.HIGH, fixed_time="11:00"),
+        Task("high early", 10, Priority.HIGH, fixed_time="08:00"),
+        Task("med", 10, Priority.MEDIUM, fixed_time="09:00"),
+    ]
+    ordered = Scheduler(owner).sort_by_priority_then_time(tasks)
+    # High priority first (earlier time wins the tie), then medium, then low.
+    assert [t.title for t in ordered] == [
+        "high early",
+        "high late",
+        "med",
+        "low early",
+    ]
+
+
+# ---------------------------------------------------------------------------
+# Challenge 1: next available slot
+# ---------------------------------------------------------------------------
+
+
+def test_next_available_slot_finds_opening_after_tasks():
+    owner = Owner("J", available_minutes=120, start_time="08:00")
+    tasks = [Task("walk", 30), Task("feed", 10)]  # occupy 08:00-08:40
+    slot = Scheduler(owner, tasks).next_available_slot(20)
+    assert slot == "08:40"
+
+
+def test_next_available_slot_uses_gap_before_fixed_task():
+    owner = Owner("J", available_minutes=180, start_time="08:00")
+    tasks = [Task("vet", 30, fixed_time="09:00")]  # 09:00-09:30 occupied
+    # A 30-min task fits 08:00-08:30, before the fixed vet visit.
+    assert Scheduler(owner, tasks).next_available_slot(30) == "08:00"
+
+
+def test_next_available_slot_none_when_full():
+    owner = Owner("J", available_minutes=30, start_time="08:00")
+    tasks = [Task("walk", 30)]  # fills the whole window
+    assert Scheduler(owner, tasks).next_available_slot(15) is None
+
+
+# ---------------------------------------------------------------------------
+# Challenge 2: JSON persistence round-trip
+# ---------------------------------------------------------------------------
+
+
+def test_save_and_load_round_trip(tmp_path):
+    path = str(tmp_path / "data.json")
+    owner = Owner("Jordan", available_minutes=90, start_time="07:30",
+                  preferences=["mornings"])
+    mochi = Pet("Mochi", "dog", needs=["walks"])
+    mochi.add_task(Task("Walk", 30, Priority.HIGH, fixed_time="08:00",
+                        frequency="daily", due_date=date(2026, 6, 26)))
+    luna = Pet("Luna", "cat")
+    luna.add_task(Task("Play", 15, Priority.MEDIUM))
+
+    save_to_json(path, owner, [mochi, luna])
+    loaded_owner, loaded_pets = load_from_json(path)
+
+    assert loaded_owner.name == "Jordan"
+    assert loaded_owner.available_minutes == 90
+    assert loaded_owner.preferences == ["mornings"]
+    assert [p.name for p in loaded_pets] == ["Mochi", "Luna"]
+
+    walk = loaded_pets[0].tasks[0]
+    assert walk.title == "Walk"
+    assert walk.priority is Priority.HIGH  # enum preserved
+    assert walk.fixed_time == "08:00"
+    assert walk.frequency == "daily"
+    assert walk.due_date == date(2026, 6, 26)  # date preserved
+    assert loaded_pets[1].tasks[0].title == "Play"
+
+
+def test_loaded_data_still_schedules(tmp_path):
+    """Data loaded from disk should plug straight back into the Scheduler."""
+    path = str(tmp_path / "data.json")
+    owner = Owner("J", available_minutes=120, start_time="08:00")
+    pet = Pet("Mochi")
+    pet.add_task(Task("Walk", 30, Priority.HIGH))
+    save_to_json(path, owner, [pet])
+
+    loaded_owner, loaded_pets = load_from_json(path)
+    all_tasks = [t for p in loaded_pets for t in p.tasks]
+    plan = Scheduler(loaded_owner, all_tasks).build_plan()
+    assert [s.task.title for s in plan.scheduled] == ["Walk"]

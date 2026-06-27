@@ -35,6 +35,12 @@ in the Streamlit UI):
 - **Daily / weekly recurrence** — completing a recurring task
   (`Pet.complete_task()` → `Task.next_occurrence()`) automatically creates the
   next occurrence with its due date advanced via `timedelta`.
+- **Priority-then-time scheduling** — `sort_by_priority_then_time()` orders by
+  priority first and breaks ties by the earlier clock time.
+- **Next available slot** — `next_available_slot(duration)` answers "when can I
+  fit a 30-minute task today?" by scanning the gaps in the current plan.
+- **Data persistence** — `save_to_json()` / `load_from_json()` remember pets and
+  tasks between runs via a `data.json` file.
 - **Plan explanation** — every plan reports what was scheduled, what was skipped
   and why, and total time used.
 
@@ -184,6 +190,64 @@ methods support sorting, filtering, conflict detection, and recurrence.
 | Buffer between tasks | `Scheduler(buffer_minutes=...)`, `_find_slot` | Optional gap between consecutive tasks so the owner isn't expected to switch instantly |
 | Fixed-time window check | `assign_times` | Skips fixed-time tasks that fall outside the owner's available window |
 | Completed tasks | `Task.mark_complete`, `build_plan` | Done tasks are excluded from today's plan, freeing their time for others |
+| Next available slot | `next_available_slot(duration)` | Finds the earliest opening big enough for a new task in today's plan |
+
+### Priority-then-time scheduling (CLI example)
+
+`Scheduler.sort_by_priority_then_time()` orders the most important tasks first,
+then by the earlier clock time (untimed tasks last). From `python main.py`:
+
+```
+╭────────────────────┬────────────┬────────┬───────┬────────────╮
+│ Task               │ Priority   │ Time   │ Pet   │ Status     │
+├────────────────────┼────────────┼────────┼───────┼────────────┤
+│ 🦮 Morning walk     │ 🔴 HIGH     │ 08:00  │ Mochi │ ⏰ fixed    │
+│ 🍖 Feeding          │ 🔴 HIGH     │ 09:00  │ Mochi │ ⏰ fixed    │
+│ 🎓 Training session │ 🟡 MEDIUM   │ 11:00  │ Mochi │ ⏰ fixed    │
+│ 🎾 Play time        │ 🟡 MEDIUM   │ —      │ Luna  │ 🕒 flexible │
+│ 🧹 Litter cleanup   │ 🟢 LOW      │ 09:00  │ Luna  │ ⏰ fixed    │
+│ 🛁 Weekly grooming  │ 🟢 LOW      │ —      │ Luna  │ 🕒 flexible │
+╰────────────────────┴────────────┴────────┴───────┴────────────╯
+```
+
+Both HIGH tasks come before all MEDIUM tasks, which come before LOW — and within
+each priority the earlier fixed time wins.
+
+## 💾 Data Persistence
+
+PawPal+ can remember pets and tasks between runs by saving them to a JSON file.
+
+- **Methods (`pawpal_system.py`):** `save_to_json(path, owner, pets)` writes the
+  owner and every pet (with its tasks) to disk; `load_from_json(path)` reads them
+  back and returns `(owner, pets)`.
+- **How serialization works:** JSON can't directly encode our dataclasses, the
+  `Priority` enum, or `date` objects, so the module converts each object to a
+  plain dict first (helpers `_task_to_dict`, `_pet_to_dict`, `_owner_to_dict` and
+  their `_from_dict` partners). Enums are stored as ints, dates as ISO strings,
+  and tuples as lists; everything is reversed on load.
+- **File written:** `data.json` (git-ignored, since it's runtime data).
+- **Files modified for this feature:** `pawpal_system.py` (the methods),
+  `main.py` (a save → load round-trip demo), `.gitignore` (ignore `data.json`),
+  and `tests/test_pawpal.py` (round-trip tests).
+
+```python
+from pawpal_system import save_to_json, load_from_json
+save_to_json("data.json", owner, pets)        # before quitting
+owner, pets = load_from_json("data.json")      # next run
+```
+
+## 🎨 CLI Output Formatting
+
+The terminal demo (`main.py`) uses friendly, structured output:
+
+- **`tabulate`** (added to `requirements.txt`) renders the task and schedule
+  tables with the `rounded_grid` style.
+- **Task-type emojis** — 🦮 walk, 🍖 feeding, 💊 meds, 🛁 grooming, 🎾 play,
+  🎓 training, 🧹 cleanup, 🩺 vet (matched by keyword in `type_emoji()`).
+- **Color-coded priority dots** — 🔴 HIGH, 🟡 MEDIUM, 🟢 LOW (`PRIORITY_DOT`).
+- **Status icons** — ✅ done, ⏰ fixed-time, 🕒 flexible (`status_icon()`).
+- `main.py` reconfigures stdout to UTF-8 so the emojis render on Windows
+  terminals that default to cp1252.
 
 ## 📸 Demo Walkthrough
 
