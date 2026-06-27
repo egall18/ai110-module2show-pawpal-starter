@@ -85,14 +85,55 @@ Sample test output:
 
 ## 📐 Smarter Scheduling
 
-> Fill in once you've implemented scheduling logic.
+All scheduling lives in `pawpal_system.py`. The core plan is built by a pipeline
+inside `Scheduler.build_plan()`: drop completed → filter by recurrence → sort →
+filter by budget → assign times. On top of that, several standalone algorithmic
+methods support sorting, filtering, conflict detection, and recurrence.
+
+### Sorting behavior
+
+- **`Scheduler.sort_by_time()`** — orders tasks chronologically by their
+  `fixed_time`, using a lambda key that converts each `"HH:MM"` string to
+  minutes (`parse_time`). Flexible tasks (no fixed time) sort to the end.
+- **`Scheduler.sort_tasks()`** — the scheduling sort: highest priority first,
+  shorter task wins ties so more tasks fit.
+
+### Filtering behavior
+
+- **`Scheduler.filter_tasks(pet_name=..., completed=...)`** — filters a task
+  list by pet name, completion status, or both (each filter is optional).
+- **`Scheduler.filter_by_recurrence()`** + **`Task.is_active_on()`** — keeps
+  only the tasks active on the requested weekday (`days` field; `None` = every
+  day), selected via `build_plan(day_of_week=...)`.
+- **`Scheduler.filter_by_budget()`** — best-effort greedy fill: skips a task
+  that won't fit the time budget but keeps trying later, shorter ones; each
+  skip carries a reason.
+
+### Conflict detection
+
+- **`Scheduler.detect_conflicts()`** — a lightweight check that returns warning
+  **strings** (never crashes) when two tasks share the same `fixed_time`. Catches
+  exact start-time clashes for an early heads-up.
+- **`Scheduler.assign_times()` / `_find_slot()`** — the real overlap safety net:
+  anchors fixed-time tasks, fills flexible tasks into the earliest open gap, and
+  skips any task whose interval would overlap one already placed (full
+  duration-aware overlap, not just exact matches).
+
+### Recurring task logic
+
+- **`Task.next_occurrence()`** — returns a fresh, uncompleted copy of a
+  recurring task with its `due_date` advanced via `timedelta` (`daily` → +1 day,
+  `weekly` → +1 week); returns `None` for one-off tasks.
+- **`Pet.complete_task()`** — marks a task done and, if it recurs, automatically
+  creates and attaches the next occurrence to the pet.
+
+### Other constraints
 
 | Feature | Method(s) | Notes |
 |---------|-----------|-------|
-| Task sorting | | e.g., by priority, duration |
-| Filtering | | e.g., skip tasks if time runs out |
-| Conflict handling | | e.g., overlapping time slots |
-| Recurring tasks | | e.g., daily vs. weekly |
+| Buffer between tasks | `Scheduler(buffer_minutes=...)`, `_find_slot` | Optional gap between consecutive tasks so the owner isn't expected to switch instantly |
+| Fixed-time window check | `assign_times` | Skips fixed-time tasks that fall outside the owner's available window |
+| Completed tasks | `Task.mark_complete`, `build_plan` | Done tasks are excluded from today's plan, freeing their time for others |
 
 ## 📸 Demo Walkthrough
 

@@ -4,64 +4,88 @@ Run this from the terminal to verify the logic layer works end to end:
 
     python main.py
 
-This is NOT the real app (that's app.py / Streamlit). It just wires up a
-realistic owner, a couple of pets, and some tasks, then prints the plan.
+This is NOT the real app (that's app.py / Streamlit). It builds an owner and
+pets, attaches tasks via Pet.add_task(), then exercises sorting, filtering,
+recurring-task regeneration, conflict detection, and full plan building.
 """
 
 from pawpal_system import Owner, Pet, Priority, Scheduler, Task
 
 
+def banner(title: str) -> None:
+    print("\n" + "=" * 52)
+    print(f"  {title}")
+    print("=" * 52)
+
+
 def main() -> None:
-    # 1. The owner and their daily time budget.
-    owner = Owner(
-        name="Jordan",
-        available_minutes=120,
-        start_time="08:00",
-        preferences=["morning walks first"],
-    )
+    owner = Owner(name="Jordan", available_minutes=180, start_time="08:00")
 
-    # 2. At least two pets.
-    pets = [
-        Pet(name="Mochi", species="dog", needs=["walks", "training"]),
-        Pet(name="Luna", species="cat", needs=["play", "grooming"]),
-    ]
+    # Two pets; tasks are attached through Pet.add_task() so each task is
+    # linked to its pet automatically (no hand-typed pet_name strings).
+    mochi = Pet(name="Mochi", species="dog", needs=["walks", "training"])
+    luna = Pet(name="Luna", species="cat", needs=["play", "grooming"])
+    pets = [mochi, luna]
 
-    # 3. At least three tasks, with different times, linked to the pets.
-    tasks = [
-        Task("Morning walk", 30, Priority.HIGH, pet_name="Mochi"),
-        Task("Feeding", 10, Priority.HIGH, pet_name="Mochi", fixed_time="09:00"),
-        Task("Training session", 20, Priority.MEDIUM, pet_name="Mochi"),
-        Task("Play time", 15, Priority.MEDIUM, pet_name="Luna"),
-        Task("Litter cleanup", 10, Priority.LOW, pet_name="Luna", fixed_time="08:45"),
-        Task("Weekly grooming", 25, Priority.LOW, pet_name="Luna", days=("Sun",)),
-    ]
+    # Added intentionally OUT OF ORDER by time to prove sort_by_time() works.
+    mochi.add_task(Task("Training session", 20, Priority.MEDIUM, fixed_time="11:00"))
+    mochi.add_task(Task("Morning walk", 30, Priority.HIGH, fixed_time="08:00",
+                        frequency="daily"))
+    mochi.add_task(Task("Feeding", 10, Priority.HIGH, fixed_time="09:00"))
+    luna.add_task(Task("Play time", 15, Priority.MEDIUM))  # flexible
+    luna.add_task(Task("Litter cleanup", 10, Priority.LOW, fixed_time="09:00"))
+    luna.add_task(Task("Weekly grooming", 25, Priority.LOW, frequency="weekly"))
 
-    # 4. Build and print today's schedule.
-    scheduler = Scheduler(owner, tasks)
-    plan = scheduler.build_plan(day_of_week="Mon")
+    all_tasks = [t for p in pets for t in p.tasks]
+    scheduler = Scheduler(owner, all_tasks, buffer_minutes=5)
 
-    print("=" * 48)
-    print(f"  Today's Schedule for {owner.name}")
-    print(f"  Pets: {', '.join(p.name for p in pets)}")
-    print("=" * 48)
+    # --- Sorting by time -----------------------------------------------------
+    banner("Tasks sorted by time")
+    for t in scheduler.sort_by_time(all_tasks):
+        when = t.fixed_time or "flexible"
+        print(f"  {when:>9}  {t.title} ({t.pet_name})")
 
-    if not plan.scheduled:
-        print("Nothing scheduled today.")
+    # --- Filtering -----------------------------------------------------------
+    banner("Filter: only Mochi's tasks")
+    for t in scheduler.filter_tasks(all_tasks, pet_name="Mochi"):
+        print(f"  - {t.title}")
+
+    banner("Filter: only incomplete tasks")
+    for t in scheduler.filter_tasks(all_tasks, completed=False):
+        print(f"  - {t.title} ({t.pet_name})")
+
+    # --- Conflict detection --------------------------------------------------
+    # Feeding (Mochi) and Litter cleanup (Luna) are both at 09:00.
+    banner("Conflict detection")
+    conflicts = scheduler.detect_conflicts(all_tasks)
+    if conflicts:
+        for warning in conflicts:
+            print(f"  {warning}")
+    else:
+        print("  No conflicts found.")
+
+    # --- Recurring tasks -----------------------------------------------------
+    banner("Recurring task regeneration")
+    walk = mochi.tasks[1]  # the daily Morning walk
+    print(f"  Before: Mochi has {len(mochi.tasks)} tasks; "
+          f"'{walk.title}' completed={walk.completed}")
+    upcoming = mochi.complete_task(walk)
+    print(f"  Completed '{walk.title}' -> spawned next occurrence "
+          f"due {upcoming.due_date}")
+    print(f"  After:  Mochi has {len(mochi.tasks)} tasks")
+
+    # --- Full plan -----------------------------------------------------------
+    banner("Today's Schedule (Mon)")
+    plan = Scheduler(owner, [t for p in pets for t in p.tasks],
+                     buffer_minutes=5).build_plan(day_of_week="Mon")
     for st in plan.scheduled:
-        pet = st.task.pet_name or "—"
-        print(
-            f"  {st.start_time}-{st.end_time}  {st.task.title}  "
-            f"({pet}, {st.task.duration_minutes} min, "
-            f"{st.task.priority.name.lower()})"
-        )
-
+        print(f"  {st.start_time}-{st.end_time}  {st.task.title} "
+              f"({st.task.pet_name})")
     if plan.skipped:
-        print("-" * 48)
         print("  Not scheduled:")
         for sk in plan.skipped:
-            print(f"  - {sk.task.title}: {sk.reason}")
-
-    print("=" * 48)
+            print(f"    - {sk.task.title}: {sk.reason}")
+    print()
     print(plan.explanation)
 
 

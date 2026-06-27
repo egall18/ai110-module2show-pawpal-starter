@@ -45,8 +45,31 @@ The common thread was catching design gaps *before* coding: an unused class, an 
 
 **b. Tradeoffs**
 
-- Describe one tradeoff your scheduler makes.
-- Why is that tradeoff reasonable for this scenario?
+One deliberate tradeoff is in my conflict detection. `Scheduler.detect_conflicts()`
+is intentionally "lightweight": it only flags tasks that share the **exact same
+`fixed_time`** (e.g. two tasks both pinned to 09:00). It does **not** check
+whether two tasks with different start times *overlap* because of their
+durations — for example, a 30-minute task at 09:00 and another at 09:15 will
+not be reported as a conflict by this method, even though they collide.
+
+This tradeoff is reasonable here for two reasons. First, it's a cheap, easy-to-
+read pre-check that gives the owner a clear, early warning ("these two things
+are booked for the same minute") without the program crashing or doing heavy
+interval math. Second, true duration-based overlaps are still handled where it
+actually matters: when the plan is built, `assign_times()` places fixed-time
+tasks one at a time and skips any whose interval overlaps one already placed,
+with a reason. So `detect_conflicts()` is an informational heads-up, while the
+real overlap safety net lives in the scheduling step. If this were a production
+calendar app I would unify the two and have `detect_conflicts()` reason about
+full intervals, but for a daily pet-care planner the exact-match warning is a
+good simplicity-vs-completeness balance.
+
+A second, related tradeoff: `filter_by_budget()` is greedy. It keeps tasks in
+priority order until the time budget runs out, which is simple and predictable
+but not globally optimal — one long high-priority task can crowd out two
+shorter medium tasks that together would have delivered more value. For a busy
+owner who wants their most important tasks done first, "highest priority wins"
+is the more intuitive behavior than a value-maximizing knapsack solver.
 
 ---
 

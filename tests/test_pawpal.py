@@ -6,6 +6,8 @@ up front (empty list, zero time, budget overflow, fixed-time collisions,
 recurrence filtering, and priority sorting).
 """
 
+from datetime import date
+
 import pytest
 
 from pawpal_system import (
@@ -228,6 +230,190 @@ def test_build_plan_zero_available_time():
     plan = Scheduler(owner, tasks).build_plan()
     assert plan.scheduled == []
     assert len(plan.skipped) == 1
+
+
+# ---------------------------------------------------------------------------
+# Efficiency improvements: buffer, fixed-time window, completed tasks
+# ---------------------------------------------------------------------------
+
+
+def test_buffer_inserts_gap_between_tasks():
+    owner = Owner("J", available_minutes=120, start_time="08:00")
+    tasks = [Task("a", 30), Task("b", 30)]
+    scheduled, _ = Scheduler(owner, buffer_minutes=10).assign_times(tasks)
+    by_title = {st.task.title: st for st in scheduled}
+    # 'a' at 08:00-08:30, then a 10-min buffer, so 'b' starts no earlier 08:40.
+    assert by_title["a"].end_time == "08:30"
+    assert parse_time(by_title["b"].start_time) >= parse_time("08:40")
+
+
+def test_no_buffer_by_default_places_back_to_back():
+    owner = Owner("J", available_minutes=120, start_time="08:00")
+    tasks = [Task("a", 30), Task("b", 30)]
+    scheduled, _ = Scheduler(owner).assign_times(tasks)
+    by_title = {st.task.title: st for st in scheduled}
+    assert by_title["b"].start_time == "08:30"  # immediately after 'a'
+
+
+def test_fixed_time_outside_window_is_skipped():
+    owner = Owner("J", available_minutes=120, start_time="08:00")  # window 08:00-10:00
+    tasks = [Task("late meds", 10, fixed_time="14:00")]
+    scheduled, skipped = Scheduler(owner).assign_times(tasks)
+    assert scheduled == []
+    assert len(skipped) == 1
+    assert "outside the available window" in skipped[0].reason
+
+
+def test_fixed_time_running_past_window_end_is_skipped():
+    owner = Owner("J", available_minutes=60, start_time="08:00")  # window 08:00-09:00
+    tasks = [Task("long fixed", 30, fixed_time="08:45")]  # would end 09:15
+    scheduled, skipped = Scheduler(owner).assign_times(tasks)
+    assert scheduled == []
+    assert "outside the available window" in skipped[0].reason
+
+
+def test_completed_tasks_excluded_from_plan():
+    owner = Owner("J", available_minutes=120, start_time="08:00")
+    done = Task("already walked", 30)
+    done.mark_complete()
+    todo = Task("feed", 10)
+    plan = Scheduler(owner, [done, todo]).build_plan()
+    titles = [st.task.title for st in plan.scheduled]
+    assert titles == ["feed"]
+    # The completed task isn't scheduled and isn't reported as skipped either.
+    assert all(sk.task.title != "already walked" for sk in plan.skipped)
+
+
+def test_completed_task_frees_time_for_others():
+    owner = Owner("J", available_minutes=40, start_time="08:00")
+    big_done = Task("big done", 60)
+    big_done.mark_complete()
+    small = Task("small", 30)
+    plan = Scheduler(owner, [big_done, small]).build_plan()
+    # Without excluding the completed 60-min task, 'small' could be crowded out;
+    # since it's excluded, 'small' fits comfortably.
+    assert [st.task.title for st in plan.scheduled] == ["small"]
+
+
+# ---------------------------------------------------------------------------
+# Sorting by time and filtering (Step 2)
+# ---------------------------------------------------------------------------
+
+
+def test_sort_by_time_orders_chronologically(owner):
+    tasks = [
+        Task("c", 10, fixed_time="12:00"),
+        Task("a", 10, fixed_time="07:30"),
+        Task("b", 10, fixed_time="09:15"),
+    ]
+    ordered = Scheduler(owner).sort_by_time(tasks)
+    assert [t.title for t in ordered] == ["a", "b", "c"]
+
+
+def test_sort_by_time_puts_flexible_tasks_last(owner):
+    tasks = [Task("flex", 10), Task("fixed", 10, fixed_time="10:00")]
+    ordered = Scheduler(owner).sort_by_time(tasks)
+    assert [t.title for t in ordered] == ["fixed", "flex"]
+
+
+def test_filter_tasks_by_pet_name(owner):
+    tasks = [
+        Task("walk", 30, pet_name="Mochi"),
+        Task("play", 15, pet_name="Luna"),
+        Task("feed", 10, pet_name="Mochi"),
+    ]
+    mochi = Scheduler(owner).filter_tasks(tasks, pet_name="Mochi")
+    assert {t.title for t in mochi} == {"walk", "feed"}
+
+
+def test_filter_tasks_by_completion_status(owner):
+    done = Task("done", 10)
+    done.mark_complete()
+    pending = Task("pending", 10)
+    sched = Scheduler(owner)
+    assert [t.title for t in sched.filter_tasks([done, pending], completed=True)] == ["done"]
+    assert [t.title for t in sched.filter_tasks([done, pending], completed=False)] == ["pending"]
+
+
+def test_filter_tasks_combined(owner):
+    tasks = [
+        Task("a", 10, pet_name="Mochi"),
+        Task("b", 10, pet_name="Mochi", completed=True),
+        Task("c", 10, pet_name="Luna"),
+    ]
+    result = Scheduler(owner).filter_tasks(tasks, pet_name="Mochi", completed=False)
+    assert [t.title for t in result] == ["a"]
+
+
+# ---------------------------------------------------------------------------
+# Recurring tasks (Step 3)
+# ---------------------------------------------------------------------------
+
+
+def test_next_occurrence_none_for_one_off():
+    assert Task("walk", 30).next_occurrence() is None
+    assert Task("walk", 30, frequency="none").next_occurrence() is None
+
+
+def test_next_occurrence_daily_advances_one_day():
+    task = Task("feed", 10, frequency="daily", due_date=date(2026, 6, 26))
+    nxt = task.next_occurrence()
+    assert nxt is not None
+    assert nxt.due_date == date(2026, 6, 27)
+    assert nxt.completed is False
+    assert nxt.title == "feed" and nxt.frequency == "daily"
+
+
+def test_next_occurrence_weekly_advances_one_week():
+    task = Task("bath", 20, frequency="weekly", due_date=date(2026, 6, 26))
+    nxt = task.next_occurrence()
+    assert nxt.due_date == date(2026, 7, 3)
+
+
+def test_complete_task_spawns_next_occurrence_on_pet():
+    pet = Pet("Mochi")
+    walk = Task("walk", 30, frequency="daily", due_date=date(2026, 6, 26))
+    pet.add_task(walk)
+    assert len(pet.tasks) == 1
+    upcoming = pet.complete_task(walk)
+    assert walk.completed is True
+    assert len(pet.tasks) == 2  # next occurrence auto-added
+    assert upcoming.due_date == date(2026, 6, 27)
+    assert upcoming.pet_name == "Mochi"
+
+
+def test_complete_task_no_spawn_for_one_off():
+    pet = Pet("Luna")
+    task = Task("nail trim", 10)  # frequency defaults to "none"
+    pet.add_task(task)
+    result = pet.complete_task(task)
+    assert result is None
+    assert len(pet.tasks) == 1
+
+
+# ---------------------------------------------------------------------------
+# Conflict detection (Step 4)
+# ---------------------------------------------------------------------------
+
+
+def test_detect_conflicts_flags_same_fixed_time(owner):
+    tasks = [
+        Task("meds", 10, fixed_time="09:00"),
+        Task("feed", 10, fixed_time="09:00"),
+        Task("walk", 30),  # flexible, ignored
+    ]
+    warnings = Scheduler(owner).detect_conflicts(tasks)
+    assert len(warnings) == 1
+    assert "09:00" in warnings[0]
+    assert "meds" in warnings[0] and "feed" in warnings[0]
+
+
+def test_detect_conflicts_none_when_times_differ(owner):
+    tasks = [
+        Task("meds", 10, fixed_time="09:00"),
+        Task("feed", 10, fixed_time="10:00"),
+    ]
+    assert Scheduler(owner).detect_conflicts(tasks) == []
 
 
 # ---------------------------------------------------------------------------
