@@ -46,38 +46,3 @@ It worked through the change across several files:
   implemented module-level functions instead of class methods. I accepted this
   as cleaner (the data spans multiple objects), but it was a deliberate human
   call, not something to take for granted.
-
----
-
-## Prompt Comparison (SF11)
-
-> Compare two different prompts (or two different models) on the same task.
-
-**Task compared:** the logic for *rescheduling weekly (recurring) tasks* — when a
-recurring task is completed, how should the next occurrence be produced?
-
-> **Honesty note:** Option A is the approach Claude (this assistant) proposed and
-> I implemented. Option B is a genuinely different design that was also generated
-> with Claude as a contrasting option, so this is really a *prompt/approach*
-> comparison rather than a cross-vendor model comparison. To turn it into a true
-> two-model comparison, paste a second tool's (e.g. Gemini/Copilot) output into
-> the Option B column.
-
-| | Option A (event-driven) | Option B (rule-based / date-range) |
-|-|-------------------------|------------------------------------|
-| **Model / tool used** | Claude (Claude Code) | Claude, prompted for a different design |
-| **Prompt** | "When a daily/weekly task is marked complete, create the next occurrence." | "Given a recurrence rule, precompute all occurrences between two dates." |
-| **Response summary** | Add `Task.next_occurrence()` that returns a copy with `due_date` advanced by `timedelta`; `Pet.complete_task()` spawns it on completion. | Store a recurrence rule per task and expand it into a list of dated instances for a requested window (week/month). |
-| **What was useful** | Simple, lazy (only creates the next one when needed), maps directly to the user action of "I finished this." | Powerful for calendar views — you can show every future occurrence at once. |
-| **Problems noticed** | No look-ahead: you only ever see the *next* instance, not a full month. | Heavier: needs date-range inputs, can generate many objects, and risks drift if rules and completion state get out of sync. |
-| **Decision** | **Chosen.** | Rejected for now. |
-
-**Which approach did you use in your final implementation and why?**
-
-I used **Option A (event-driven)**. For a daily pet-care planner the user's mental
-model is "I did this task — when's the next one?", which the
-complete-then-spawn-next design matches exactly. It's also the lighter
-implementation: a single `timedelta` advance with no date-range bookkeeping, and
-it keeps completion state and recurrence in one place. Option B's full-calendar
-expansion is the better fit if PawPal+ ever grows a month view, so I noted it as
-a future direction rather than discarding it entirely.
