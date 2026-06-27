@@ -12,6 +12,32 @@ A busy pet owner needs help staying consistent with pet care. They want an assis
 
 Your job is to design the system first (UML), then implement the logic in Python, then connect it to the Streamlit UI.
 
+## ✨ Features
+
+PawPal+ implements the following algorithms in `pawpal_system.py` (all surfaced
+in the Streamlit UI):
+
+- **Sorting by time** — `Scheduler.sort_by_time()` returns tasks in chronological
+  order by their fixed time; flexible (untimed) tasks sort last.
+- **Priority-aware scheduling** — `sort_tasks()` orders by priority (high first),
+  with shorter tasks winning ties so more tasks fit the day.
+- **Filtering** — `filter_tasks()` filters by pet and/or completion status;
+  `filter_by_recurrence()` selects only tasks active on a chosen weekday.
+- **Time-budget filtering** — `filter_by_budget()` greedily keeps tasks that fit
+  the owner's available minutes and records a reason for each one skipped.
+- **Conflict warnings** — `detect_conflicts()` flags tasks booked at the same
+  fixed time and returns warning messages (it never crashes the app).
+- **Fixed-time anchoring & overlap handling** — `assign_times()` anchors
+  fixed-time tasks, fills flexible ones into the earliest open slot, and skips
+  tasks that overlap or fall outside the available window.
+- **Buffer between tasks** — an optional gap so the owner isn't expected to
+  switch from one task to the next instantly.
+- **Daily / weekly recurrence** — completing a recurring task
+  (`Pet.complete_task()` → `Task.next_occurrence()`) automatically creates the
+  next occurrence with its due date advanced via `timedelta`.
+- **Plan explanation** — every plan reports what was scheduled, what was skipped
+  and why, and total time used.
+
 ## What you will build
 
 Your final app should:
@@ -161,12 +187,92 @@ methods support sorting, filtering, conflict detection, and recurrence.
 
 ## 📸 Demo Walkthrough
 
-Describe your app in numbered steps so a reader can follow along without watching a video:
+Launch the app with `streamlit run app.py`.
 
-1. <!-- Describe this step -->
-2. <!-- Describe this step -->
-3. <!-- Describe this step -->
-4. <!-- Describe this step -->
-5. <!-- Add more steps as needed -->
+### Main UI features and what you can do
+
+- **Owner** — set your name, the time your day starts (`HH:MM`), and how many
+  minutes you have available today (your time budget).
+- **Add a Pet** — create one or more pets (name + species). Pets persist in the
+  session so you can build up a household.
+- **Schedule a Task** — for a chosen pet, add a task with a duration, priority,
+  an optional fixed time, and an optional **Repeats** setting (daily/weekly).
+- **Task tables** — each pet's tasks are shown **sorted by time**, with priority,
+  repeat setting, and a done indicator.
+- **Conflict warnings** — if two tasks share a fixed time, a yellow warning
+  appears above the tables (and again next to the plan).
+- **Mark a task complete** — finishing a recurring task automatically creates its
+  next occurrence; a success message shows the new due date.
+- **Build Schedule** — pick a day and generate a time-ordered plan with a "Why"
+  for each task, a list of anything not scheduled (with reasons), and a full
+  plan explanation.
+
+### Example workflow
+
+1. Enter the owner (e.g. *Jordan*, start `08:00`, 120 minutes available).
+2. Add a pet → *Mochi (dog)*. Add another → *Luna (cat)*.
+3. Schedule tasks: a high-priority *Morning walk* (30 min, daily) for Mochi, a
+   *Feeding* fixed at `09:00`, and a *Play time* (15 min) for Luna.
+4. Review the **sorted** task tables and any **conflict warning**.
+5. Mark *Morning walk* complete → its next daily occurrence is created
+   automatically.
+6. Click **Generate schedule** to see today's time-ordered plan and reasoning.
+
+### Key Scheduler behaviors shown
+
+- **Sorting by time** — tasks always display and schedule in chronological order.
+- **Conflict warnings** — two tasks at the same fixed time are flagged.
+- **Fixed-time anchoring + skips** — fixed tasks lock to their time; tasks that
+  don't fit the budget, overlap, or fall outside the window are skipped with a
+  reason.
+- **Recurrence** — completing a daily/weekly task regenerates the next one.
+
+### Sample CLI output (`python main.py`)
+
+The terminal demo exercises the same logic without the UI:
+
+```
+====================================================
+  Tasks sorted by time
+====================================================
+      08:00  Morning walk (Mochi)
+      09:00  Feeding (Mochi)
+      09:00  Litter cleanup (Luna)
+      11:00  Training session (Mochi)
+   flexible  Play time (Luna)
+   flexible  Weekly grooming (Luna)
+
+====================================================
+  Filter: only Mochi's tasks
+====================================================
+  - Training session
+  - Morning walk
+  - Feeding
+
+====================================================
+  Conflict detection
+====================================================
+  WARNING: Conflict at 09:00: Feeding, Litter cleanup are scheduled at the same time.
+
+====================================================
+  Recurring task regeneration
+====================================================
+  Before: Mochi has 3 tasks; 'Morning walk' completed=False
+  Completed 'Morning walk' -> spawned next occurrence due 2026-06-27
+  After:  Mochi has 4 tasks
+
+====================================================
+  Today's Schedule (Mon)
+====================================================
+  08:00-08:30  Morning walk (Mochi)
+  08:35-08:50  Play time (Luna)
+  09:00-09:10  Feeding (Mochi)
+  09:15-09:40  Weekly grooming (Luna)
+  Not scheduled:
+    - Training session: Fixed time 11:00 is outside the available window (08:00-11:00)
+    - Litter cleanup: Fixed time 09:00 conflicts with another task
+
+Plan for Jordan (Mon): scheduled 4 task(s) using 80 of 180 available minutes.
+```
 
 **Screenshot or video** *(optional)*: <!-- Insert a screenshot or link to a demo video here -->

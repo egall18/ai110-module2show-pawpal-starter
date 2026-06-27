@@ -101,11 +101,18 @@ else:
             )
         with tc2:
             priority = st.selectbox("Priority", ["low", "medium", "high"], index=2)
-        fixed_time = st.text_input(
-            "Fixed time (optional, HH:MM)",
-            value="",
-            help="Leave blank for a flexible task the scheduler can place anywhere.",
-        )
+        tc3, tc4 = st.columns(2)
+        with tc3:
+            fixed_time = st.text_input(
+                "Fixed time (optional, HH:MM)",
+                value="",
+                help="Leave blank for a flexible task the scheduler can place anywhere.",
+            )
+        with tc4:
+            frequency = st.selectbox(
+                "Repeats", ["none", "daily", "weekly"],
+                help="Recurring tasks regenerate for the next day/week when completed.",
+            )
         if st.form_submit_button("Add task"):
             pet = next(p for p in st.session_state.pets if p.name == target_pet)
             pet.add_task(
@@ -114,29 +121,62 @@ else:
                     duration_minutes=int(duration),
                     priority=PRIORITY_MAP[priority],
                     fixed_time=fixed_time.strip() or None,
+                    frequency=frequency,
                 )
             )
             st.success(f"Added '{task_title}' for {pet.name}.")
 
-# Show each pet's current tasks (read straight from Pet.tasks).
+# A single scheduler instance powers the display-layer algorithms below.
+view = Scheduler(st.session_state.owner)
+all_tasks = [t for p in st.session_state.pets for t in p.tasks]
+
+# Conflict warnings (detect_conflicts) — shown up front so the owner sees a
+# clash before relying on the plan.
+conflicts = view.detect_conflicts(all_tasks)
+for warning in conflicts:
+    st.warning(warning.replace("WARNING: ", ""))
+
+# Show each pet's tasks, sorted chronologically by time (sort_by_time).
 any_tasks = False
 for p in st.session_state.pets:
     if p.tasks:
         any_tasks = True
-        st.write(f"**{p.name}'s tasks**")
+        st.write(f"**{p.name}'s tasks** (sorted by time)")
         st.table(
             [
                 {
+                    "Time": t.fixed_time or "flexible",
                     "Task": t.title,
                     "Duration": t.duration_minutes,
                     "Priority": t.priority.name.lower(),
-                    "Fixed time": t.fixed_time or "—",
+                    "Repeats": t.frequency,
+                    "Done": "✓" if t.completed else "",
                 }
-                for t in p.tasks
+                for t in view.sort_by_time(p.tasks)
             ]
         )
 if st.session_state.pets and not any_tasks:
     st.caption("No tasks yet — add one above.")
+
+# Mark a task complete -> uses Pet.complete_task() (recurring tasks regenerate).
+incomplete = [(p, t) for p in st.session_state.pets for t in p.tasks if not t.completed]
+if incomplete:
+    with st.expander("Mark a task complete"):
+        idx = st.selectbox(
+            "Which task did you finish?",
+            range(len(incomplete)),
+            format_func=lambda i: f"{incomplete[i][0].name}: {incomplete[i][1].title}",
+        )
+        if st.button("Mark complete"):
+            pet, task = incomplete[idx]
+            upcoming = pet.complete_task(task)
+            if upcoming is not None:
+                st.success(
+                    f"Completed '{task.title}'. A new {task.frequency} occurrence "
+                    f"was created (due {upcoming.due_date})."
+                )
+            else:
+                st.success(f"Completed '{task.title}'.")
 
 st.divider()
 
@@ -151,10 +191,13 @@ day_of_week = st.selectbox(
 )
 
 if st.button("Generate schedule"):
-    all_tasks = [t for p in st.session_state.pets for t in p.tasks]
     if not all_tasks:
         st.warning("Add at least one task first.")
     else:
+        # Re-surface any conflicts right next to the plan.
+        for warning in view.detect_conflicts(all_tasks):
+            st.warning(warning.replace("WARNING: ", ""))
+
         day = None if day_of_week == "Any day" else day_of_week
         plan = Scheduler(st.session_state.owner, all_tasks).build_plan(day_of_week=day)
 
@@ -173,7 +216,7 @@ if st.button("Generate schedule"):
                     for s in plan.scheduled
                 ]
             )
-            st.caption(
+            st.success(
                 f"Scheduled {len(plan.scheduled)} task(s) using "
                 f"{plan.total_minutes()} of "
                 f"{st.session_state.owner.available_minutes} available minutes."

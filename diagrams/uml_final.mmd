@@ -1,0 +1,90 @@
+classDiagram
+    %% PawPal+ — FINAL architecture (matches pawpal_system.py)
+    %% Core flow: Owner + Pets (each with Tasks) -> Scheduler -> Plan
+    %% Module-level helpers (not classes): parse_time(), format_time()
+
+    class Priority {
+        <<enumeration>>
+        LOW
+        MEDIUM
+        HIGH
+    }
+
+    class Owner {
+        +str name
+        +int available_minutes
+        +str start_time
+        +list~str~ preferences
+    }
+
+    class Pet {
+        +str name
+        +str species
+        +list~str~ needs
+        +list~Task~ tasks
+        +add_task(task) None
+        +complete_task(task) Task
+    }
+
+    class Task {
+        +str title
+        +int duration_minutes
+        +Priority priority
+        +str category
+        +str pet_name
+        +str fixed_time
+        +tuple~str~ days
+        +bool completed
+        +str frequency
+        +date due_date
+        +is_fixed() bool
+        +mark_complete() None
+        +is_active_on(day_of_week) bool
+        +next_occurrence() Task
+    }
+
+    class ScheduledTask {
+        +Task task
+        +str start_time
+        +str end_time
+        +str reason
+    }
+
+    class SkippedTask {
+        +Task task
+        +str reason
+    }
+
+    class Plan {
+        +list~ScheduledTask~ scheduled
+        +list~SkippedTask~ skipped
+        +str explanation
+        +total_minutes() int
+        +summary() str
+    }
+
+    class Scheduler {
+        +Owner owner
+        +list~Task~ tasks
+        +int buffer_minutes
+        +filter_by_recurrence(tasks, day_of_week) list~Task~
+        +sort_tasks(tasks) list~Task~
+        +sort_by_time(tasks) list~Task~
+        +filter_tasks(tasks, pet_name, completed) list~Task~
+        +detect_conflicts(tasks) list~str~
+        +filter_by_budget(tasks) tuple
+        +assign_times(tasks) tuple
+        +build_plan(day_of_week) Plan
+    }
+
+    Owner "1" --> "0..*" Pet : owns
+    Pet "1" *-- "0..*" Task : has (tasks)
+    Task --> Priority : has
+    Task ..> Task : next_occurrence creates
+    Scheduler --> Owner : uses
+    Scheduler ..> Task : schedules
+    Scheduler --> Plan : produces
+    Plan "1" *-- "0..*" ScheduledTask : contains
+    Plan "1" *-- "0..*" SkippedTask : contains
+    ScheduledTask --> Task : wraps
+    SkippedTask --> Task : wraps
