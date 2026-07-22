@@ -12,6 +12,7 @@ import json
 from dataclasses import dataclass, field, replace
 from datetime import date, timedelta
 from enum import IntEnum
+from typing import Optional
 
 
 # ---------------------------------------------------------------------------
@@ -80,7 +81,7 @@ class Pet:
         task.pet_name = self.name
         self.tasks.append(task)
 
-    def complete_task(self, task: "Task") -> "Task | None":
+    def complete_task(self, task: "Task") -> "Optional[Task]":
         """Mark a task done; if it recurs, auto-create and attach the next one.
 
         Returns the newly created next occurrence, or None for one-off tasks.
@@ -105,12 +106,12 @@ class Task:
     duration_minutes: int
     priority: Priority = Priority.MEDIUM
     category: str = "general"
-    pet_name: str | None = None
-    fixed_time: str | None = None
-    days: tuple[str, ...] | None = None
+    pet_name: Optional[str] = None
+    fixed_time: Optional[str] = None
+    days: Optional[tuple[str, ...]] = None
     completed: bool = False
     frequency: str = "none"  # "none" | "daily" | "weekly"
-    due_date: date | None = None
+    due_date: Optional[date] = None
 
     def is_fixed(self) -> bool:
         """Return True if this task must occur at a specific time."""
@@ -120,7 +121,7 @@ class Task:
         """Mark this task as done."""
         self.completed = True
 
-    def next_occurrence(self) -> "Task | None":
+    def next_occurrence(self) -> "Optional[Task]":
         """Return a fresh, uncompleted copy due on the next date, or None.
 
         Daily tasks advance by one day, weekly tasks by one week (via
@@ -135,7 +136,7 @@ class Task:
         base = self.due_date or date.today()
         return replace(self, completed=False, due_date=base + delta)
 
-    def is_active_on(self, day_of_week: str | None) -> bool:
+    def is_active_on(self, day_of_week: Optional[str]) -> bool:
         """Return True if this task should run on the given weekday.
 
         A day_of_week of None (no specific day requested) means "include
@@ -200,7 +201,7 @@ class Scheduler:
     def __init__(
         self,
         owner: Owner,
-        tasks: list[Task] | None = None,
+        tasks: Optional[list[Task]] = None,
         buffer_minutes: int = 0,
     ) -> None:
         """Create a scheduler for an owner and an optional list of tasks.
@@ -213,7 +214,7 @@ class Scheduler:
         self.buffer_minutes = buffer_minutes
 
     def filter_by_recurrence(
-        self, tasks: list[Task], day_of_week: str | None
+        self, tasks: list[Task], day_of_week: Optional[str]
     ) -> list[Task]:
         """Keep only tasks active on the requested day (handles recurrence)."""
         return [t for t in tasks if t.is_active_on(day_of_week)]
@@ -224,7 +225,7 @@ class Scheduler:
             tasks, key=lambda t: (-int(t.priority), t.duration_minutes, t.title)
         )
 
-    def sort_by_time(self, tasks: list[Task] | None = None) -> list[Task]:
+    def sort_by_time(self, tasks: Optional[list[Task]] = None) -> list[Task]:
         """Return tasks ordered chronologically by their fixed_time ("HH:MM").
 
         A lambda key converts each "HH:MM" string to minutes so the sort is
@@ -237,7 +238,7 @@ class Scheduler:
         )
 
     def sort_by_priority_then_time(
-        self, tasks: list[Task] | None = None
+        self, tasks: Optional[list[Task]] = None
     ) -> list[Task]:
         """Sort by priority (high first), then chronologically by fixed_time.
 
@@ -256,8 +257,8 @@ class Scheduler:
         )
 
     def next_available_slot(
-        self, duration_minutes: int, day_of_week: str | None = None
-    ) -> str | None:
+        self, duration_minutes: int, day_of_week: Optional[str] = None
+    ) -> Optional[str]:
         """Return the earliest "HH:MM" a new task of `duration_minutes` would fit.
 
         Builds today's plan, then searches the gaps around already-scheduled
@@ -279,10 +280,10 @@ class Scheduler:
 
     def filter_tasks(
         self,
-        tasks: list[Task] | None = None,
+        tasks: Optional[list[Task]] = None,
         *,
-        pet_name: str | None = None,
-        completed: bool | None = None,
+        pet_name: Optional[str] = None,
+        completed: Optional[bool] = None,
     ) -> list[Task]:
         """Return tasks filtered by pet name and/or completion status.
 
@@ -297,7 +298,7 @@ class Scheduler:
             result = [t for t in result if t.completed == completed]
         return result
 
-    def detect_conflicts(self, tasks: list[Task] | None = None) -> list[str]:
+    def detect_conflicts(self, tasks: Optional[list[Task]] = None) -> list[str]:
         """Lightweight conflict check: warn when tasks share the same fixed_time.
 
         Returns human-readable warning strings (empty list if no conflicts) so
@@ -428,7 +429,7 @@ class Scheduler:
         scheduled.sort(key=lambda st: parse_time(st.start_time))
         return scheduled, skipped
 
-    def build_plan(self, day_of_week: str | None = None) -> Plan:
+    def build_plan(self, day_of_week: Optional[str] = None) -> Plan:
         """Run the full pipeline and return the resulting Plan.
 
         Pipeline: drop completed -> filter_by_recurrence -> sort_tasks
@@ -453,7 +454,7 @@ class Scheduler:
         window_start: int,
         window_end: int,
         occupied: list[tuple[int, int]],
-    ) -> int | None:
+    ) -> Optional[int]:
         """Return the earliest start minute with a free gap of `duration`.
 
         Honors self.buffer_minutes: a placed task must leave a buffer gap
@@ -469,7 +470,7 @@ class Scheduler:
             return cursor
         return None
 
-    def _explain(self, plan: Plan, day_of_week: str | None) -> str:
+    def _explain(self, plan: Plan, day_of_week: Optional[str]) -> str:
         """Build a human-readable explanation of the plan's decisions."""
         day = day_of_week or "today"
         parts = [

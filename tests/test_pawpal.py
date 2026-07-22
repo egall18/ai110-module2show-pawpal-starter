@@ -372,6 +372,27 @@ def test_next_occurrence_weekly_advances_one_week():
     assert nxt.due_date == date(2026, 7, 3)
 
 
+def test_next_occurrence_daily_crosses_month_boundary():
+    task = Task("feed", 10, frequency="daily", due_date=date(2023, 2, 28))
+    nxt = task.next_occurrence()
+    assert nxt is not None
+    assert nxt.due_date == date(2023, 3, 1)
+
+
+def test_next_occurrence_daily_handles_leap_day():
+    task = Task("feed", 10, frequency="daily", due_date=date(2024, 2, 28))
+    nxt = task.next_occurrence()
+    assert nxt is not None
+    assert nxt.due_date == date(2024, 2, 29)
+
+
+def test_next_occurrence_weekly_crosses_year_boundary():
+    task = Task("bath", 20, frequency="weekly", due_date=date(2026, 12, 28))
+    nxt = task.next_occurrence()
+    assert nxt is not None
+    assert nxt.due_date == date(2027, 1, 4)
+
+
 def test_complete_task_spawns_next_occurrence_on_pet():
     pet = Pet("Mochi")
     walk = Task("walk", 30, frequency="daily", due_date=date(2026, 6, 26))

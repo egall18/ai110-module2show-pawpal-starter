@@ -107,7 +107,9 @@ Run the full automated test suite from the project root:
 python -m pytest
 ```
 
-**What the tests cover** (`tests/test_pawpal.py`, 50 tests):
+**What the tests cover** (`tests/test_pawpal.py` + `tests/test_app_ui.py`,
+62 collected tests in the
+latest verified run):
 
 - **Time helpers** — `parse_time`/`format_time` round-trips and rejection of bad input
 - **Domain model** — priority ordering, `is_fixed`, `is_active_on`, `mark_complete`, `Pet.add_task`
@@ -125,15 +127,16 @@ Successful run:
 platform win32 -- Python 3.14.4, pytest-9.1.1, pluggy-1.6.0
 rootdir: C:\Users\Erik Gallardo\Desktop\codepath-ai\ai110-module2show-pawpal-starter
 plugins: anyio-4.14.1
-collected 50 items
+collected 62 items
 
-tests\test_pawpal.py ..................................................  [100%]
+tests\test_app_ui.py ...                                                         [  4%]
+tests\test_pawpal.py ...........................................................  [100%]
 
-============================= 50 passed in 0.06s ==============================
+============================= 62 passed in 1.05s ==============================
 ```
 
 **Confidence level: ★★★★☆ (4/5).** The core scheduling, sorting, filtering,
-recurrence, and conflict logic are well covered by 50 passing tests, including
+recurrence, and conflict logic are well covered by 62 passing tests, including
 the main edge cases. I held back the fifth star because conflict detection only
 catches exact same-time clashes (duration overlaps are handled separately in
 `assign_times`), recurrence date math hasn't been stress-tested across DST or
