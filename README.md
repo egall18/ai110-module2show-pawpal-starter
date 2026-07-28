@@ -136,11 +136,11 @@ tests\test_pawpal.py ...........................................................
 ```
 
 **Confidence level: ★★★★☆ (4/5).** The core scheduling, sorting, filtering,
-recurrence, and conflict logic are well covered by 62 passing tests, including
-the main edge cases. I held back the fifth star because conflict detection only
-catches exact same-time clashes (duration overlaps are handled separately in
-`assign_times`), recurrence date math hasn't been stress-tested across DST or
-leap-year boundaries, and there are no UI-level tests for `app.py`.
+recurrence, and conflict logic are well covered by 67 passing tests, including
+UI smoke tests and date-boundary cases such as month rollover, leap day, and
+year rollover. I held back the fifth star because conflict detection still only
+catches exact same-time clashes, duration overlaps are handled separately in
+`assign_times`, and DST/timezone edge cases have not been fully stress-tested.
 
 ## 📐 Smarter Scheduling
 
