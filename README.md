@@ -270,6 +270,8 @@ At its core, the original system handled owner/pet setup, task entry, priority-a
 
 **PawPal+** is a Streamlit-based pet-care planning assistant. It matters because it turns a list of pet chores into an actionable schedule and then layers AI on top so the user can ask planning questions, get a grounded answer, and see a fallback when the model output is unreliable.
 
+GitHub artifact: [PawPal+ code repository](https://github.com/egall18/ai110-module2show-pawpal-starter)
+
 ### Architecture Overview
 
 The project is organized around a small set of cooperating parts:
@@ -335,6 +337,37 @@ Input: an empty or overly long assistant question
 Expected AI output: the app blocks the request with a guardrail message instead of sending an unsafe query to a model.
 ```
 
+### 4b) Reproducible Execution Evidence
+
+The evidence below is text-based so a grader can verify behavior without a
+video. It includes command output plus three representative AI reliability
+cases.
+
+```bash
+$ python -m pytest -q
+..................................................................       [100%]
+66 passed in 1.16s
+
+$ python ai_eval.py
+[PASS] good_answer
+[PASS] missing_required_details
+  - Missing required planning detail(s): time, place, priority, duration
+[PASS] not_grounded_in_task_titles
+  - No known task title from context was mentioned.
+
+Summary: 3/3 checks matched expected behavior.
+```
+
+| Test input | Behavior checked | Result |
+|---|---|---|
+| `Start with Morning walk at time 08:00 in the place Park. Its priority is high and duration is 30 minutes.` | Grounded answer should mention a known task and required planning details | `PASS` |
+| `Do a quick walk and feeding soon.` | Guardrail should flag missing planning details and fall back safely | `PASS` |
+| `Time is 08:00, place home, priority high, duration 30 min. start with exercise.` | Response should be rejected if it is not grounded in a known task title | `PASS` |
+
+These checks demonstrate the AI behavior end to end: the assistant uses task
+context, the reliability layer evaluates the answer, and the app falls back
+when the output is weak or ungrounded.
+
 ### Design Decisions
 
 I kept the original scheduler as the source of truth for planning and used AI as a helper, not as the only decision-maker. That makes the system more reliable because the deterministic scheduler still produces a valid plan if a model fails or gives a weak answer.
@@ -354,6 +387,11 @@ I learned that the best way to make AI useful in an app is to place it inside a 
 ### Reflection
 
 This project taught me that AI features are strongest when they are constrained by real system logic, tested like software, and backed by clear fallback behavior. It also showed me that the same project can support both a deterministic planner and a conversational assistant without sacrificing reliability.
+
+What this project says about me as an AI engineer: I build AI systems as
+products, not demos. I care about grounding, validation, fallback behavior, and
+reproducible testing, which means I optimize for trustworthiness and
+maintainability as much as for model quality.
 
 The graded responsible-AI reflection belongs in `model_card.md`, not here, so this README stays focused on project understanding, setup, and implementation details for reviewers and employers.
 
