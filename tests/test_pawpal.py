@@ -358,12 +358,13 @@ def test_next_occurrence_none_for_one_off():
 
 
 def test_next_occurrence_daily_advances_one_day():
-    task = Task("feed", 10, frequency="daily", due_date=date(2026, 6, 26))
+    task = Task("feed", 10, place="Kitchen", frequency="daily", due_date=date(2026, 6, 26))
     nxt = task.next_occurrence()
     assert nxt is not None
     assert nxt.due_date == date(2026, 6, 27)
     assert nxt.completed is False
     assert nxt.title == "feed" and nxt.frequency == "daily"
+    assert nxt.place == "Kitchen"
 
 
 def test_next_occurrence_weekly_advances_one_week():
@@ -575,7 +576,7 @@ def test_save_and_load_round_trip(tmp_path):
     owner = Owner("Jordan", available_minutes=90, start_time="07:30",
                   preferences=["mornings"])
     mochi = Pet("Mochi", "dog", needs=["walks"])
-    mochi.add_task(Task("Walk", 30, Priority.HIGH, fixed_time="08:00",
+    mochi.add_task(Task("Walk", 30, Priority.HIGH, place="Park", fixed_time="08:00",
                         frequency="daily", due_date=date(2026, 6, 26)))
     luna = Pet("Luna", "cat")
     luna.add_task(Task("Play", 15, Priority.MEDIUM))
@@ -591,6 +592,7 @@ def test_save_and_load_round_trip(tmp_path):
     walk = loaded_pets[0].tasks[0]
     assert walk.title == "Walk"
     assert walk.priority is Priority.HIGH  # enum preserved
+    assert walk.place == "Park"
     assert walk.fixed_time == "08:00"
     assert walk.frequency == "daily"
     assert walk.due_date == date(2026, 6, 26)  # date preserved

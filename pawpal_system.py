@@ -106,6 +106,7 @@ class Task:
     duration_minutes: int
     priority: Priority = Priority.MEDIUM
     category: str = "general"
+    place: str = ""
     pet_name: Optional[str] = None
     fixed_time: Optional[str] = None
     days: Optional[tuple[str, ...]] = None
@@ -501,6 +502,7 @@ def _task_to_dict(task: Task) -> dict:
         "duration_minutes": task.duration_minutes,
         "priority": int(task.priority),
         "category": task.category,
+        "place": task.place,
         "pet_name": task.pet_name,
         "fixed_time": task.fixed_time,
         "days": list(task.days) if task.days else None,
@@ -517,6 +519,7 @@ def _task_from_dict(data: dict) -> Task:
         duration_minutes=data["duration_minutes"],
         priority=Priority(data.get("priority", int(Priority.MEDIUM))),
         category=data.get("category", "general"),
+        place=data.get("place", ""),
         pet_name=data.get("pet_name"),
         fixed_time=data.get("fixed_time"),
         days=tuple(data["days"]) if data.get("days") else None,
