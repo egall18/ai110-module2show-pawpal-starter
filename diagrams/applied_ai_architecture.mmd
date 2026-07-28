@@ -1,0 +1,21 @@
+flowchart TD
+    A[User Input in Streamlit UI] --> B[Input Guardrail\nvalidate question length/non-empty]
+    B --> C[Build Pet Context\nowner + tasks + schedule + skipped reasons]
+    C --> D{Provider Router\nAI_PROVIDER + failover}
+
+    D --> E1[Gemini API]
+    D --> E2[OpenAI API]
+    D --> E3[Claude API]
+
+    E1 --> F[Candidate Answer]
+    E2 --> F
+    E3 --> F
+
+    F --> G{Output Reliability Check\nGrounded task titles + required fields\ntime/place/priority/duration}
+    G -- pass --> H[Render AI answer]
+    G -- fail --> I[Local deterministic fallback\nScheduler-based summary]
+
+    D -->|all providers fail| I
+    I --> J[Render fallback + reasons]
+    H --> K[Visible telemetry\nprovider + latency + attempt trail]
+    J --> K

@@ -1,9 +1,12 @@
 import streamlit as st
 import json
 import os
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
+
+from ai_reliability import evaluate_answer_quality
 
 from pawpal_system import (
     Owner,
@@ -350,41 +353,52 @@ def _ask_gemini_assistant(question, context_text):
 
 
 def _ask_ai_assistant(question, context_text):
-    """Dispatch to configured AI provider; auto-detect if not explicitly set."""
-    provider = os.getenv("AI_PROVIDER", "").strip().lower()
+    """Dispatch with provider failover for reliability.
 
-    if provider == "gemini":
-        if not os.getenv("GEMINI_API_KEY", "").strip():
-            return (
-                "Gemini is selected, but GEMINI_API_KEY is missing in .env. "
-                "Add GEMINI_API_KEY, restart the app, and try again."
-            )
-        return _ask_gemini_assistant(question, context_text)
+    Returns a tuple: (answer_or_none, provider_used_or_none, attempt_summaries).
+    """
 
-    if provider == "openai":
-        if not os.getenv("OPENAI_API_KEY", "").strip():
-            return (
-                "OpenAI is selected, but OPENAI_API_KEY is missing in .env. "
-                "Add OPENAI_API_KEY, restart the app, and try again."
-            )
-        return _ask_openai_assistant(question, context_text)
+    providers = {
+        "gemini": ("GEMINI_API_KEY", _ask_gemini_assistant),
+        "openai": ("OPENAI_API_KEY", _ask_openai_assistant),
+        "claude": ("CLAUDE_API_KEY", _ask_claude_assistant),
+    }
+    default_order = ["gemini", "openai", "claude"]
 
-    if provider == "claude":
-        if not os.getenv("CLAUDE_API_KEY", "").strip():
-            return (
-                "Claude is selected, but CLAUDE_API_KEY is missing in .env. "
-                "Add CLAUDE_API_KEY, restart the app, and try again."
-            )
-        return _ask_claude_assistant(question, context_text)
+    preferred = os.getenv("AI_PROVIDER", "").strip().lower()
+    order = list(default_order)
+    if preferred in providers:
+        order = [preferred] + [p for p in default_order if p != preferred]
 
-    # Auto-detect: try Gemini first, then OpenAI, then Claude.
-    if os.getenv("GEMINI_API_KEY", "").strip():
-        return _ask_gemini_assistant(question, context_text)
-    if os.getenv("OPENAI_API_KEY", "").strip():
-        return _ask_openai_assistant(question, context_text)
-    if os.getenv("CLAUDE_API_KEY", "").strip():
-        return _ask_claude_assistant(question, context_text)
-    return None
+    attempts = []
+    for provider_name in order:
+        key_name, caller = providers[provider_name]
+        if not os.getenv(key_name, "").strip():
+            continue
+
+        result = caller(question, context_text)
+        if result is None:
+            attempts.append(f"{provider_name}: unavailable")
+            continue
+        if result.startswith("AI request failed"):
+            attempts.append(f"{provider_name}: failed")
+            continue
+
+        attempts.append(f"{provider_name}: success")
+        return result, provider_name, attempts
+
+    if preferred in providers and not os.getenv(providers[preferred][0], "").strip():
+        return (
+            (
+                f"{preferred.capitalize()} is selected, but "
+                f"{providers[preferred][0]} is missing in .env. "
+                "Add the key, restart the app, and try again."
+            ),
+            None,
+            attempts,
+        )
+
+    return None, None, attempts
 
 
 def _local_assistant_answer(owner, pet, day_of_week):
@@ -414,6 +428,16 @@ def _local_assistant_answer(owner, pet, day_of_week):
         "to get natural-language AI responses to your custom questions."
     )
     return "\n".join(lines)
+
+
+def _validate_assistant_question(question):
+    """Guardrail for question quality and abuse-resistant sizing."""
+    clean = (question or "").strip()
+    if not clean:
+        return False, "Question cannot be empty."
+    if len(clean) > 500:
+        return False, "Question is too long (max 500 characters)."
+    return True, ""
 
 # ---------------------------------------------------------------------------
 # Session "vault": create the Owner and the list of Pets once, reuse on rerun.
@@ -747,18 +771,50 @@ else:
         height=120,
     )
     if st.button("Ask assistant"):
+        is_valid_question, question_error = _validate_assistant_question(
+            assistant_question
+        )
+        if not is_valid_question:
+            st.warning(question_error)
+            st.stop()
+
         selected_dog = next(d for d in dogs if d.name == selected_dog_name)
         day = None if assistant_day == "Any day" else assistant_day
         context_text = _build_pet_context(st.session_state.owner, selected_dog, day)
+        started = time.time()
         with st.spinner("Preparing assistant response..."):
-            ai_answer = _ask_ai_assistant(assistant_question.strip(), context_text)
+            ai_answer, provider_used, attempts = _ask_ai_assistant(
+                assistant_question.strip(), context_text
+            )
+        latency_ms = int((time.time() - started) * 1000)
+
         if ai_answer is None:
+            if attempts:
+                st.caption(
+                    "Provider attempts: " + ", ".join(attempts)
+                )
             st.info(_local_assistant_answer(st.session_state.owner, selected_dog, day))
-        elif ai_answer.startswith("AI request failed (429)"):
+        elif ai_answer.startswith("AI request failed"):
+            if attempts:
+                st.caption(
+                    "Provider attempts: " + ", ".join(attempts)
+                )
             st.warning(ai_answer)
             st.info(_local_assistant_answer(st.session_state.owner, selected_dog, day))
         else:
-            st.markdown(ai_answer)
+            passes_quality, quality_reasons = evaluate_answer_quality(
+                ai_answer, context_text
+            )
+            st.caption(
+                f"Provider: {provider_used or 'local fallback'} | latency: {latency_ms} ms"
+            )
+            if not passes_quality:
+                st.warning("AI response failed reliability checks; using local fallback.")
+                for reason in quality_reasons:
+                    st.caption(f"- {reason}")
+                st.info(_local_assistant_answer(st.session_state.owner, selected_dog, day))
+            else:
+                st.markdown(ai_answer)
 
 if st.button("Generate schedule"):
     if not start_time_valid:

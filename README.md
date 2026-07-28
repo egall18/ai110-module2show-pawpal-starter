@@ -343,3 +343,111 @@ Plan for Jordan (Mon): scheduled 4 task(s) using 80 of 180 available minutes.
 ```
 
 **Screenshot or video** *(optional)*: <!-- Insert a screenshot or link to a demo video here -->
+
+## Project 4 (Applied AI System) Rubric Coverage
+
+### 1) Base project + original scope
+
+- **Base project:** PawPal+ pet care planner.
+- **Original goal:** collect owner/pet/task inputs and generate a daily care plan
+  under time/priority constraints.
+- **Original capabilities:** scheduling pipeline, conflict warnings, recurrence,
+  persistence, and Streamlit UI interactions.
+
+### 2) Substantial new AI feature (reliability mechanism)
+
+PawPal+ extends the base planner with an **AI reliability harness** integrated
+into the UI flow:
+
+- **Provider failover:** routes through Gemini/OpenAI/Claude and automatically
+  falls back when a provider fails.
+- **Input guardrail:** validates custom questions (non-empty, max length).
+- **Output guardrail:** checks whether AI output is grounded in known task
+  titles and includes required planning details (`time`, `place`, `priority`,
+  `duration`).
+- **Deterministic fallback:** if checks fail, the app shows a scheduler-based
+  local answer instead of low-quality model output.
+
+Implementation files:
+
+- `app.py` (provider routing + guardrails + fallback UI behavior)
+- `ai_reliability.py` (pure reliability checks)
+- `ai_eval.py` (evaluation harness)
+
+### 3) System architecture diagram
+
+- Data-flow Mermaid source: `diagrams/applied_ai_architecture.mmd`
+- Class UML: `diagrams/uml_final.mmd`
+
+The applied-AI architecture diagram shows full flow from user input to
+provider routing, reliability checks, and fallback output.
+
+### 4) Functional end-to-end demonstration
+
+Run the full system:
+
+```bash
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+streamlit run app.py
+```
+
+Run tests:
+
+```bash
+python -m pytest
+```
+
+Run reliability evaluator:
+
+```bash
+python ai_eval.py
+```
+
+Example assistant prompts (in the UI):
+
+```text
+1) What is the best plan for my dog today? Include time, place, priority, completion status, and duration.
+2) Which tasks are high priority and what should happen first?
+3) If I only have 30 minutes, which tasks should I do now?
+```
+
+### 5) Reliability / evaluation / guardrail evidence
+
+Reliability examples (input -> behavior -> result):
+
+```text
+Input: empty question
+Behavior: input guardrail blocks request
+Result: warning shown; no provider call is made
+```
+
+```text
+Input: provider returns 429 or 404
+Behavior: failover tries the next configured provider
+Result: AI answer from fallback provider, or local deterministic summary if all fail
+```
+
+```text
+Input: AI answer omits task grounding or misses required details
+Behavior: output reliability check fails
+Result: app warns and replaces AI answer with local scheduler-based fallback
+```
+
+### 6) Documentation and setup instructions
+
+This README includes:
+
+- project goals and capabilities,
+- install/run/test steps,
+- sample workflows and outputs,
+- Project 4 reliability architecture and evaluation instructions.
+
+### 7) Reflection
+
+See `reflection.md` for:
+
+- how AI was used for prompting/debugging/design,
+- examples of helpful and flawed suggestions,
+- limitations and future improvement ideas.
