@@ -258,6 +258,107 @@ Launch the app with `streamlit run app.py`.
 
 ### Main UI features and what you can do
 
+## Portfolio README
+
+### Original Project
+
+PawPal+ started as the Module 1-3 pet-care planner project. Its original goal was to help a busy pet owner organize daily pet tasks, respect time and priority constraints, and generate a readable schedule that explains what fit and what did not.
+
+At its core, the original system handled owner/pet setup, task entry, priority-aware scheduling, recurrence, conflict warnings, and JSON persistence. The current version keeps that foundation and extends it with an AI assistant that can answer planning questions in context.
+
+### Title and Summary
+
+**PawPal+** is a Streamlit-based pet-care planning assistant. It matters because it turns a list of pet chores into an actionable schedule and then layers AI on top so the user can ask planning questions, get a grounded answer, and see a fallback when the model output is unreliable.
+
+### Architecture Overview
+
+The project is organized around a small set of cooperating parts:
+
+- The Streamlit UI in `app.py` collects user input, builds pet context, and displays schedules and AI answers.
+- The scheduler in `pawpal_system.py` turns tasks into a daily plan and explains what was scheduled or skipped.
+- The reliability helpers in `ai_reliability.py` validate questions and check whether AI answers are grounded in known task data.
+- The evaluator in `ai_eval.py` runs sample checks so the AI behavior can be tested consistently.
+- The system diagram in `diagrams/system_diagram.mmd` shows the data flow from user input to AI routing, fallback, testing, and human review.
+
+In short: input comes from the user, planning context is assembled, the AI provider is chosen, the response is checked, and the app either shows the model answer or a deterministic scheduler-based fallback.
+
+### Setup Instructions
+
+1. Create and activate a virtual environment.
+
+```bash
+python -m venv .venv
+source .venv/bin/activate
+```
+
+2. Install the dependencies.
+
+```bash
+pip install -r requirements.txt
+```
+
+3. Add your local API keys in `.env` if you want to use Gemini, OpenAI, or Claude.
+
+4. Run the Streamlit app.
+
+```bash
+streamlit run app.py
+```
+
+5. Run the tests and the reliability evaluator.
+
+```bash
+python -m pytest
+python ai_eval.py
+```
+
+### Sample Interactions
+
+Example 1: schedule planning
+
+```text
+Input: What is the best plan for my dog today? Include time, place, priority, completion status, and duration.
+Expected AI output: a schedule-style answer that mentions the dog's tasks, when they happen, where they happen, and why they were chosen.
+```
+
+Example 2: constrained planning
+
+```text
+Input: If I only have 30 minutes, which tasks should I do now?
+Expected AI output: a short recommendation that picks the highest-value tasks that fit the time window and explains the trade-off.
+```
+
+Example 3: reliability fallback
+
+```text
+Input: an empty or overly long assistant question
+Expected AI output: the app blocks the request with a guardrail message instead of sending an unsafe query to a model.
+```
+
+### Design Decisions
+
+I kept the original scheduler as the source of truth for planning and used AI as a helper, not as the only decision-maker. That makes the system more reliable because the deterministic scheduler still produces a valid plan if a model fails or gives a weak answer.
+
+I also chose a multi-provider design with Gemini, OpenAI, and Claude support because provider access, quotas, and model behavior can vary. The trade-off is more branching and more configuration, but the payoff is better resilience and easier demos.
+
+Another deliberate trade-off is the output guardrail. Rather than trusting every AI answer, the app checks for grounded task titles and required planning terms before showing the result. That makes the experience safer, even if it occasionally falls back to the local summary.
+
+### Testing Summary
+
+The project currently passes the full test suite, including scheduler logic, recurrence, UI smoke tests, and the new AI reliability checks. The reliability evaluator also runs sample checks that show when an answer passes or fails the guardrail.
+
+What worked well was the separation between deterministic scheduling and AI response checking. What was weaker earlier in the process was unstructured assistant output, which is why the guardrail and fallback path were added.
+
+I learned that the best way to make AI useful in an app is to place it inside a system with checks, not to let it operate alone.
+
+### Reflection
+
+This project taught me that AI features are strongest when they are constrained by real system logic, tested like software, and backed by clear fallback behavior. It also showed me that the same project can support both a deterministic planner and a conversational assistant without sacrificing reliability.
+
+The graded responsible-AI reflection belongs in `model_card.md`, not here, so this README stays focused on project understanding, setup, and implementation details for reviewers and employers.
+
+See [model_card.md](model_card.md) for the graded responsible-AI reflection.
+
 - **Owner** — set your name, the time your day starts (`HH:MM`), and how many
   minutes you have available today (your time budget).
 - **Add a Pet** — create one or more pets (name + species). Pets persist in the
@@ -434,6 +535,20 @@ Input: AI answer omits task grounding or misses required details
 Behavior: output reliability check fails
 Result: app warns and replaces AI answer with local scheduler-based fallback
 ```
+
+```text
+Input: any assistant request (including failures)
+Behavior: structured event logging to ai_events.jsonl
+Result: reproducible audit trail with provider attempts, latency, and guardrail outcomes
+```
+
+Runtime logging details:
+
+- Log file: `ai_events.jsonl`
+- Writer: `ai_logging.py`
+- Events include: request blocked, provider error, quality-guardrail failure,
+  successful AI output, and local fallback path
+- Safety: logs never store API keys or full context payloads
 
 ### 6) Documentation and setup instructions
 
