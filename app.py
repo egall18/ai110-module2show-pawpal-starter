@@ -6,6 +6,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
+from ai_logging import log_ai_event
 from ai_reliability import evaluate_answer_quality
 
 from pawpal_system import (
@@ -19,25 +20,216 @@ from pawpal_system import (
     save_to_json,
 )
 
-st.set_page_config(page_title="PawPal+", page_icon="🐾", layout="centered")
-
-st.title("🐾 PawPal+")
+st.set_page_config(page_title="PawPal+", page_icon="🐾", layout="wide")
 
 st.markdown(
     """
-Welcome to PawPal+ — a pet care planning assistant.
+<style>
+    :root {
+        --bg: #0f141b;
+        --bg-2: #151c25;
+        --panel: rgba(20, 27, 36, 0.88);
+        --panel-border: rgba(255, 255, 255, 0.08);
+        --text: #eef3f7;
+        --muted: #aab6c4;
+        --accent: #53b39a;
+        --accent-2: #d6a05c;
+        --shadow: 0 24px 70px rgba(0, 0, 0, 0.34);
+        --radius: 24px;
+    }
 
-Enter your owner info, add one or more pets, give each pet some care tasks,
-then generate a daily plan. The scheduling logic lives in `pawpal_system.py`;
-this page is the interactive demo.
-"""
+    .stApp {
+        background:
+            radial-gradient(circle at top left, rgba(83, 179, 154, 0.18), transparent 25%),
+            radial-gradient(circle at top right, rgba(214, 160, 92, 0.16), transparent 24%),
+            linear-gradient(180deg, #0b1016 0%, var(--bg) 42%, var(--bg-2) 100%);
+        color: var(--text);
+    }
+
+    .block-container {
+        padding-top: 1.8rem;
+        padding-bottom: 2.5rem;
+        max-width: 1180px;
+    }
+
+    h1, h2, h3 {
+        letter-spacing: -0.03em;
+    }
+
+    .hero {
+        background: linear-gradient(135deg, rgba(14, 20, 28, 0.98), rgba(35, 61, 73, 0.96));
+        color: #fff;
+        border: 1px solid rgba(255, 255, 255, 0.09);
+        border-radius: 30px;
+        padding: 1.6rem 1.7rem;
+        box-shadow: var(--shadow);
+        margin-bottom: 1.4rem;
+    }
+
+    .hero h1 {
+        margin: 0;
+        font-size: 2.4rem;
+        line-height: 1.05;
+    }
+
+    .hero p {
+        margin: 0.65rem 0 0;
+        color: rgba(255, 255, 255, 0.84);
+        max-width: 62rem;
+        font-size: 1.02rem;
+    }
+
+    .hero-badges {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.55rem;
+        margin-top: 1rem;
+    }
+
+    .badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.35rem;
+        padding: 0.42rem 0.75rem;
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.12);
+        border: 1px solid rgba(255, 255, 255, 0.14);
+        color: #fff;
+        font-size: 0.9rem;
+        line-height: 1;
+    }
+
+    .section-card {
+        background: var(--panel);
+        border: 1px solid var(--panel-border);
+        border-radius: var(--radius);
+        box-shadow: var(--shadow);
+        padding: 1.1rem 1.15rem 0.95rem;
+        margin-bottom: 1rem;
+        backdrop-filter: blur(10px);
+    }
+
+    .section-card h2,
+    .section-card h3 {
+        margin-top: 0;
+    }
+
+    div[data-testid="stForm"] {
+        background: rgba(18, 24, 32, 0.88);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 18px;
+        padding: 1rem;
+        box-shadow: 0 12px 35px rgba(0, 0, 0, 0.22);
+    }
+
+    .stTextInput input,
+    .stNumberInput input,
+    .stTextArea textarea,
+    .stSelectbox [data-baseweb="select"],
+    .stDateInput [data-baseweb="base-input"],
+    div[data-baseweb="base-input"] {
+        border-radius: 14px !important;
+        background: rgba(10, 15, 21, 0.92) !important;
+        color: var(--text) !important;
+        border-color: rgba(255, 255, 255, 0.10) !important;
+    }
+
+    .stTextInput input::placeholder,
+    .stTextArea textarea::placeholder {
+        color: rgba(238, 243, 247, 0.5) !important;
+    }
+
+    .stButton > button {
+        border-radius: 14px;
+        border: 1px solid rgba(83, 179, 154, 0.24);
+        background: linear-gradient(135deg, #53b39a, #2e6b5d);
+        color: white;
+        font-weight: 600;
+        padding: 0.55rem 1rem;
+        box-shadow: 0 10px 24px rgba(83, 179, 154, 0.18);
+        transition: transform 0.12s ease, box-shadow 0.12s ease;
+    }
+
+    .stButton > button:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 14px 28px rgba(83, 179, 154, 0.24);
+        border-color: rgba(83, 179, 154, 0.36);
+    }
+
+    .stAlert {
+        border-radius: 16px;
+        background: rgba(18, 24, 32, 0.88);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+    }
+
+    .stCaption,
+    .stMarkdown,
+    p,
+    label,
+    .stRadio label,
+    .stCheckbox label {
+        color: var(--text);
+    }
+
+    div[data-testid="stTable"] {
+        background: rgba(18, 24, 32, 0.84);
+        border-radius: 16px;
+        overflow: hidden;
+        border: 1px solid rgba(255, 255, 255, 0.08);
+    }
+
+    .stTable table,
+    .stTable th,
+    .stTable td {
+        color: var(--text) !important;
+        background: transparent !important;
+    }
+
+    details summary {
+        font-weight: 600;
+    }
+
+    .stDataFrame, .stTable {
+        border-radius: 16px;
+        overflow: hidden;
+    }
+
+    hr {
+        border-color: rgba(22, 32, 42, 0.08);
+    }
+
+    footer {visibility: hidden;}
+    #MainMenu {visibility: hidden;}
+</style>
+""",
+    unsafe_allow_html=True,
 )
 
-with st.expander("Scenario", expanded=False):
+st.markdown(
+    """
+<div class="hero">
+    <h1>🐾 PawPal+</h1>
+    <p>
+        A modern pet-care planner that turns chores into a grounded daily plan,
+        explains what fits, and uses AI guardrails so the answer stays reliable.
+    </p>
+    <div class="hero-badges">
+        <span class="badge">🗓️ Smart schedule planning</span>
+        <span class="badge">🧠 AI assistant with fallback</span>
+        <span class="badge">✅ Reliability checks</span>
+        <span class="badge">💾 Persistent data</span>
+    </div>
+</div>
+""",
+    unsafe_allow_html=True,
+)
+
+with st.expander("What PawPal+ does", expanded=False):
     st.markdown(
         """
-**PawPal+** is a pet care planning assistant. It helps a pet owner plan care tasks
-for their pet(s) based on constraints like time, priority, and preferences.
+PawPal+ helps a pet owner plan care tasks for their pet(s) based on constraints
+like time, priority, and preferences. The scheduler handles the plan; the AI
+assistant explains it in plain language and falls back safely when needed.
 """
     )
 
@@ -45,6 +237,7 @@ st.divider()
 
 PRIORITY_MAP = {"low": Priority.LOW, "medium": Priority.MEDIUM, "high": Priority.HIGH}
 DATA_FILE = "data.json"
+AI_LOG_FILE = "ai_events.jsonl"
 
 
 def _load_project_env(path=".env"):
@@ -740,11 +933,28 @@ st.divider()
 # Build Schedule  ->  gather every pet's tasks and run the Scheduler
 # ---------------------------------------------------------------------------
 st.subheader("Build Schedule")
+st.caption(
+    "This section turns your saved pets and tasks into a day plan. "
+    "It checks what fits your available time, warns about conflicts, and "
+    "shows what gets scheduled or skipped."
+)
 day_of_week = st.selectbox(
     "Plan for which day?",
     ["Any day", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
     index=0,
 )
+
+with st.expander("How this works", expanded=False):
+    st.markdown(
+        """
+1. PawPal+ looks at the tasks you already added for each pet.
+2. It filters out tasks that do not fit the selected day or your available time.
+3. It builds a schedule with start and end times.
+4. It shows any tasks that were skipped and explains why.
+
+In short: this is the button that says, "what should I do today, and in what order?"
+"""
+    )
 
 st.subheader("Ask AI Assistant")
 dogs = [p for p in st.session_state.pets if p.species.lower() == "dog"]
@@ -775,6 +985,14 @@ else:
             assistant_question
         )
         if not is_valid_question:
+            log_ai_event(
+                AI_LOG_FILE,
+                {
+                    "event": "assistant_request_blocked",
+                    "reason": question_error,
+                    "question_length": len((assistant_question or "").strip()),
+                },
+            )
             st.warning(question_error)
             st.stop()
 
@@ -793,12 +1011,33 @@ else:
                 st.caption(
                     "Provider attempts: " + ", ".join(attempts)
                 )
+            log_ai_event(
+                AI_LOG_FILE,
+                {
+                    "event": "assistant_fallback_local",
+                    "provider_used": None,
+                    "attempts": attempts,
+                    "latency_ms": latency_ms,
+                    "question_length": len(assistant_question.strip()),
+                },
+            )
             st.info(_local_assistant_answer(st.session_state.owner, selected_dog, day))
         elif ai_answer.startswith("AI request failed"):
             if attempts:
                 st.caption(
                     "Provider attempts: " + ", ".join(attempts)
                 )
+            log_ai_event(
+                AI_LOG_FILE,
+                {
+                    "event": "assistant_provider_error",
+                    "provider_used": provider_used,
+                    "attempts": attempts,
+                    "latency_ms": latency_ms,
+                    "error_prefix": ai_answer[:120],
+                    "question_length": len(assistant_question.strip()),
+                },
+            )
             st.warning(ai_answer)
             st.info(_local_assistant_answer(st.session_state.owner, selected_dog, day))
         else:
@@ -809,11 +1048,32 @@ else:
                 f"Provider: {provider_used or 'local fallback'} | latency: {latency_ms} ms"
             )
             if not passes_quality:
+                log_ai_event(
+                    AI_LOG_FILE,
+                    {
+                        "event": "assistant_output_guardrail_fail",
+                        "provider_used": provider_used,
+                        "attempts": attempts,
+                        "latency_ms": latency_ms,
+                        "reasons": quality_reasons,
+                        "question_length": len(assistant_question.strip()),
+                    },
+                )
                 st.warning("AI response failed reliability checks; using local fallback.")
                 for reason in quality_reasons:
                     st.caption(f"- {reason}")
                 st.info(_local_assistant_answer(st.session_state.owner, selected_dog, day))
             else:
+                log_ai_event(
+                    AI_LOG_FILE,
+                    {
+                        "event": "assistant_output_pass",
+                        "provider_used": provider_used,
+                        "attempts": attempts,
+                        "latency_ms": latency_ms,
+                        "question_length": len(assistant_question.strip()),
+                    },
+                )
                 st.markdown(ai_answer)
 
 if st.button("Generate schedule"):

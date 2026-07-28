@@ -411,7 +411,9 @@ See [model_card.md](model_card.md) for the graded responsible-AI reflection.
   next occurrence; a success message shows the new due date.
 - **Build Schedule** — pick a day and generate a time-ordered plan with a "Why"
   for each task, a list of anything not scheduled (with reasons), and a full
-  plan explanation.
+  plan explanation. The section now includes a plain-English helper message so
+  users immediately understand that it turns saved tasks into a day plan,
+  checks what fits, and explains what gets skipped.
 
 ### Example workflow
 
