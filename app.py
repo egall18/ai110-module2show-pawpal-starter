@@ -2,6 +2,7 @@ import streamlit as st
 import json
 import os
 import time
+from datetime import date
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -238,6 +239,9 @@ st.divider()
 PRIORITY_MAP = {"low": Priority.LOW, "medium": Priority.MEDIUM, "high": Priority.HIGH}
 DATA_FILE = "data.json"
 AI_LOG_FILE = "ai_events.jsonl"
+WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+AVAILABLE_DAYS_PREF_PREFIX = "available_days="
+AVAILABLE_DATES_PREF_PREFIX = "available_dates="
 
 
 def _load_project_env(path=".env"):
@@ -632,6 +636,109 @@ def _validate_assistant_question(question):
         return False, "Question is too long (max 500 characters)."
     return True, ""
 
+
+def _normalize_title(title):
+    return " ".join((title or "").strip().lower().split())
+
+
+def _extract_owner_available_days(owner):
+    for pref in owner.preferences:
+        if not pref.startswith(AVAILABLE_DAYS_PREF_PREFIX):
+            continue
+        raw_days = pref.split("=", 1)[1]
+        saved = [d.strip() for d in raw_days.split(",") if d.strip()]
+        valid = [d for d in WEEKDAYS if d in saved]
+        if valid:
+            return valid
+    return list(WEEKDAYS)
+
+
+def _set_owner_available_days(owner, days):
+    owner.preferences = [
+        pref
+        for pref in owner.preferences
+        if not pref.startswith(AVAILABLE_DAYS_PREF_PREFIX)
+    ]
+    owner.preferences.append(f"{AVAILABLE_DAYS_PREF_PREFIX}{','.join(days)}")
+
+
+def _extract_owner_available_dates(owner):
+    for pref in owner.preferences:
+        if not pref.startswith(AVAILABLE_DATES_PREF_PREFIX):
+            continue
+        raw_dates = pref.split("=", 1)[1]
+        parsed = []
+        for item in [d.strip() for d in raw_dates.split(",") if d.strip()]:
+            try:
+                parsed.append(date.fromisoformat(item))
+            except ValueError:
+                continue
+        if parsed:
+            return sorted(set(parsed))
+    return []
+
+
+def _set_owner_available_dates(owner, dates):
+    owner.preferences = [
+        pref
+        for pref in owner.preferences
+        if not pref.startswith(AVAILABLE_DATES_PREF_PREFIX)
+    ]
+    if dates:
+        owner.preferences.append(
+            f"{AVAILABLE_DATES_PREF_PREFIX}{','.join(d.isoformat() for d in dates)}"
+        )
+
+
+def _weekdays_from_dates(dates):
+    if not dates:
+        return []
+    present = {WEEKDAYS[d.weekday()] for d in dates}
+    return [d for d in WEEKDAYS if d in present]
+
+
+def _task_days_set(days):
+    return set(days) if days else set(WEEKDAYS)
+
+
+def _find_fixed_time_conflict(
+    pets,
+    *,
+    pet_name,
+    task_title,
+    fixed_time,
+    selected_days,
+    exclude_task=None,
+):
+    incoming_days = _task_days_set(selected_days)
+    for pet in pets:
+        for task in pet.tasks:
+            if task is exclude_task:
+                continue
+            if task.fixed_time != fixed_time:
+                continue
+
+            overlap = incoming_days & _task_days_set(task.days)
+            if not overlap:
+                continue
+
+            overlap_days = ", ".join([d for d in WEEKDAYS if d in overlap])
+            if (
+                pet.name == pet_name
+                and _normalize_title(task.title) == _normalize_title(task_title)
+            ):
+                return (
+                    f"Duplicate task: '{task_title}' already exists for {pet_name} "
+                    f"at {fixed_time} on {overlap_days}."
+                )
+
+            return (
+                f"Time conflict: {pet.name} already has '{task.title}' at {fixed_time} "
+                f"on {overlap_days}. Choose a different time or day."
+            )
+
+    return None
+
 # ---------------------------------------------------------------------------
 # Session "vault": create the Owner and the list of Pets once, reuse on rerun.
 # ---------------------------------------------------------------------------
@@ -641,6 +748,10 @@ if "pets" not in st.session_state:
     st.session_state.pets = []
 if "loaded_data_once" not in st.session_state:
     st.session_state.loaded_data_once = False
+if "owner_available_days" not in st.session_state:
+    st.session_state.owner_available_days = list(WEEKDAYS)
+if "owner_available_dates" not in st.session_state:
+    st.session_state.owner_available_dates = []
 
 # Hydrate from disk once per browser session if data exists.
 if not st.session_state.loaded_data_once:
@@ -655,6 +766,18 @@ if not st.session_state.loaded_data_once:
     except (ValueError, KeyError, TypeError) as exc:
         st.session_state.loaded_data_once = True
         st.warning(f"Could not load data.json: {exc}")
+
+st.session_state.owner_available_dates = _extract_owner_available_dates(
+    st.session_state.owner
+)
+if st.session_state.owner_available_dates:
+    st.session_state.owner_available_days = _weekdays_from_dates(
+        st.session_state.owner_available_dates
+    )
+else:
+    st.session_state.owner_available_days = _extract_owner_available_days(
+        st.session_state.owner
+    )
 
 # ---------------------------------------------------------------------------
 # Owner
@@ -674,6 +797,43 @@ with oc2:
         value=st.session_state.owner.available_minutes,
         step=15,
     )
+
+st.caption("Select available dates from the calendar. Scheduling day options are derived from these dates.")
+calendar_date = st.date_input(
+    "Pick available date",
+    value=date.today(),
+    help="Choose a date, then click Add available date.",
+)
+cd1, cd2 = st.columns(2)
+with cd1:
+    if st.button("Add available date"):
+        if calendar_date not in st.session_state.owner_available_dates:
+            st.session_state.owner_available_dates.append(calendar_date)
+            st.session_state.owner_available_dates.sort()
+with cd2:
+    if st.button("Clear available dates"):
+        st.session_state.owner_available_dates = []
+
+if st.session_state.owner_available_dates:
+    remove_date = st.selectbox(
+        "Selected dates",
+        st.session_state.owner_available_dates,
+        format_func=lambda d: d.strftime("%a %b %d, %Y"),
+    )
+    if st.button("Remove selected date"):
+        st.session_state.owner_available_dates = [
+            d for d in st.session_state.owner_available_dates if d != remove_date
+        ]
+
+owner_available_days = _weekdays_from_dates(st.session_state.owner_available_dates)
+if not owner_available_days and not st.session_state.owner_available_dates:
+    # Backward compatibility: honor previously saved weekday-only preferences.
+    owner_available_days = _extract_owner_available_days(st.session_state.owner)
+st.session_state.owner_available_days = owner_available_days
+_set_owner_available_dates(st.session_state.owner, st.session_state.owner_available_dates)
+_set_owner_available_days(st.session_state.owner, owner_available_days)
+if not owner_available_days:
+    st.warning("Select at least one available date so tasks can be scheduled.")
 
 # Keep the persisted Owner's editable fields in sync with the inputs each run.
 st.session_state.owner.name = owner_name
@@ -765,7 +925,21 @@ else:
                 "Repeats", ["none", "daily", "weekly"],
                 help="Recurring tasks regenerate for the next day/week when completed.",
             )
+        task_days = st.multiselect(
+            "Task days",
+            st.session_state.owner_available_days,
+            default=st.session_state.owner_available_days,
+            help="Pick which available days this task can run.",
+            disabled=not st.session_state.owner_available_days,
+        )
         if st.form_submit_button("Add task"):
+            if not st.session_state.owner_available_days:
+                st.warning("Set owner available days first.")
+                st.stop()
+            if not task_days:
+                st.warning("Choose at least one day for this task.")
+                st.stop()
+
             clean_fixed = fixed_time.strip() or None
             fixed_valid = True
             if clean_fixed is not None:
@@ -775,6 +949,19 @@ else:
                     fixed_valid = False
                     st.warning("Fixed time must be valid HH:MM (for example, 09:30).")
             if fixed_valid:
+                conflict = None
+                if clean_fixed is not None:
+                    conflict = _find_fixed_time_conflict(
+                        st.session_state.pets,
+                        pet_name=target_pet,
+                        task_title=task_title,
+                        fixed_time=clean_fixed,
+                        selected_days=tuple(task_days),
+                    )
+                if conflict:
+                    st.warning(conflict)
+                    st.stop()
+
                 pet = next(p for p in st.session_state.pets if p.name == target_pet)
                 pet.add_task(
                     Task(
@@ -783,6 +970,7 @@ else:
                         priority=PRIORITY_MAP[priority],
                         place=task_place.strip(),
                         fixed_time=clean_fixed,
+                        days=tuple(task_days),
                         frequency=frequency,
                     )
                 )
@@ -813,6 +1001,7 @@ for p in st.session_state.pets:
             [
                 {
                     "Time": t.fixed_time or "flexible",
+                    "Days": ", ".join(t.days) if t.days else "Any",
                     "Task": t.title,
                     "Place": t.place or "—",
                     "Duration": t.duration_minutes,
@@ -879,10 +1068,31 @@ if editable:
                     index=["none", "daily", "weekly"].index(task.frequency),
                 )
 
+            existing_days = list(task.days) if task.days else list(WEEKDAYS)
+            default_days = [
+                d for d in st.session_state.owner_available_days if d in existing_days
+            ]
+            if not default_days and st.session_state.owner_available_days:
+                default_days = list(st.session_state.owner_available_days)
+            new_task_days = st.multiselect(
+                "Task days",
+                st.session_state.owner_available_days,
+                default=default_days,
+                help="Pick which available days this task can run.",
+                disabled=not st.session_state.owner_available_days,
+            )
+
             save_changes = st.form_submit_button("Save changes")
             delete_task = st.form_submit_button("Delete task")
 
         if save_changes:
+            if not st.session_state.owner_available_days:
+                st.warning("Set owner available days first.")
+                st.stop()
+            if not new_task_days:
+                st.warning("Choose at least one day for this task.")
+                st.stop()
+
             clean_fixed = new_fixed_time.strip() or None
             edit_fixed_valid = True
             if clean_fixed is not None:
@@ -892,11 +1102,26 @@ if editable:
                     edit_fixed_valid = False
                     st.warning("Fixed time must be valid HH:MM (for example, 09:30).")
             if edit_fixed_valid:
+                conflict = None
+                if clean_fixed is not None:
+                    conflict = _find_fixed_time_conflict(
+                        st.session_state.pets,
+                        pet_name=pet.name,
+                        task_title=new_title.strip() or task.title,
+                        fixed_time=clean_fixed,
+                        selected_days=tuple(new_task_days),
+                        exclude_task=task,
+                    )
+                if conflict:
+                    st.warning(conflict)
+                    st.stop()
+
                 task.title = new_title.strip() or task.title
                 task.duration_minutes = int(new_duration)
                 task.priority = PRIORITY_MAP[new_priority]
                 task.place = new_place.strip()
                 task.fixed_time = clean_fixed
+                task.days = tuple(new_task_days)
                 task.frequency = new_frequency
                 st.success(f"Updated '{task.title}' for {pet.name}.")
                 st.rerun()
@@ -935,21 +1160,45 @@ st.divider()
 st.subheader("Build Schedule")
 st.caption(
     "This section turns your saved pets and tasks into a day plan. "
-    "It checks what fits your available time, warns about conflicts, and "
+    "It checks what fits your selected scope and available time, warns about conflicts, and "
     "shows what gets scheduled or skipped."
 )
 day_of_week = st.selectbox(
     "Plan for which day?",
-    ["Any day", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
+    ["Any day"] + st.session_state.owner_available_days,
     index=0,
 )
+
+bs1, bs2, bs3 = st.columns(3)
+with bs1:
+    plan_scope = st.selectbox(
+        "Plan scope",
+        ["All pets"] + [p.name for p in st.session_state.pets],
+        help="Choose one pet or include everyone.",
+    )
+with bs2:
+    priority_floor = st.selectbox(
+        "Minimum priority",
+        ["low", "medium", "high"],
+        index=0,
+        help="Only include tasks at or above this priority.",
+    )
+with bs3:
+    buffer_minutes = st.slider(
+        "Buffer between tasks (min)",
+        min_value=0,
+        max_value=60,
+        value=0,
+        step=5,
+        help="Adds a gap between scheduled tasks.",
+    )
 
 with st.expander("How this works", expanded=False):
     st.markdown(
         """
 1. PawPal+ looks at the tasks you already added for each pet.
-2. It filters out tasks that do not fit the selected day or your available time.
-3. It builds a schedule with start and end times.
+2. It filters by day, selected plan scope, and minimum priority.
+3. It applies your optional buffer and builds a schedule with start/end times.
 4. It shows any tasks that were skipped and explains why.
 
 In short: this is the button that says, "what should I do today, and in what order?"
@@ -957,25 +1206,25 @@ In short: this is the button that says, "what should I do today, and in what ord
     )
 
 st.subheader("Ask AI Assistant")
-dogs = [p for p in st.session_state.pets if p.species.lower() == "dog"]
-if not dogs:
-    st.caption("Add at least one dog to ask for a dog-specific plan.")
+pets_for_assistant = list(st.session_state.pets)
+if not pets_for_assistant:
+    st.caption("Add at least one pet to ask for a pet-specific plan.")
 else:
-    selected_dog_name = st.selectbox(
-        "Which dog?",
-        [d.name for d in dogs],
-        key="assistant_dog_select",
+    selected_pet_name = st.selectbox(
+        "Which pet?",
+        [p.name for p in pets_for_assistant],
+        key="assistant_pet_select",
     )
     assistant_day = st.selectbox(
         "Assistant day",
-        ["Any day", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
+        ["Any day"] + st.session_state.owner_available_days,
         index=0,
         key="assistant_day_select",
     )
     assistant_question = st.text_area(
         "Question for assistant",
         value=(
-            "What is the best plan for my dog today? Include time, place, "
+            "What is the best plan for my pet today? Include time, place, "
             "priority, completion status, and duration."
         ),
         height=120,
@@ -996,9 +1245,11 @@ else:
             st.warning(question_error)
             st.stop()
 
-        selected_dog = next(d for d in dogs if d.name == selected_dog_name)
+        selected_pet = next(
+            p for p in pets_for_assistant if p.name == selected_pet_name
+        )
         day = None if assistant_day == "Any day" else assistant_day
-        context_text = _build_pet_context(st.session_state.owner, selected_dog, day)
+        context_text = _build_pet_context(st.session_state.owner, selected_pet, day)
         started = time.time()
         with st.spinner("Preparing assistant response..."):
             ai_answer, provider_used, attempts = _ask_ai_assistant(
@@ -1021,7 +1272,7 @@ else:
                     "question_length": len(assistant_question.strip()),
                 },
             )
-            st.info(_local_assistant_answer(st.session_state.owner, selected_dog, day))
+            st.info(_local_assistant_answer(st.session_state.owner, selected_pet, day))
         elif ai_answer.startswith("AI request failed"):
             if attempts:
                 st.caption(
@@ -1039,7 +1290,7 @@ else:
                 },
             )
             st.warning(ai_answer)
-            st.info(_local_assistant_answer(st.session_state.owner, selected_dog, day))
+            st.info(_local_assistant_answer(st.session_state.owner, selected_pet, day))
         else:
             passes_quality, quality_reasons = evaluate_answer_quality(
                 ai_answer, context_text
@@ -1062,7 +1313,7 @@ else:
                 st.warning("AI response failed reliability checks; using local fallback.")
                 for reason in quality_reasons:
                     st.caption(f"- {reason}")
-                st.info(_local_assistant_answer(st.session_state.owner, selected_dog, day))
+                st.info(_local_assistant_answer(st.session_state.owner, selected_pet, day))
             else:
                 log_ai_event(
                     AI_LOG_FILE,
@@ -1077,18 +1328,45 @@ else:
                 st.markdown(ai_answer)
 
 if st.button("Generate schedule"):
+    if not st.session_state.owner_available_days:
+        st.warning("Set owner available days first.")
+        st.stop()
     if not start_time_valid:
         st.warning("Fix owner start time first (use HH:MM).")
         st.stop()
     if not all_tasks:
         st.warning("Add at least one task first.")
     else:
-        # Re-surface any conflicts right next to the plan.
-        for warning in view.detect_conflicts(all_tasks):
+        # Apply Build Schedule controls before planning.
+        tasks_for_plan = list(all_tasks)
+        if plan_scope != "All pets":
+            tasks_for_plan = [t for t in tasks_for_plan if t.pet_name == plan_scope]
+
+        min_priority = PRIORITY_MAP[priority_floor]
+        tasks_for_plan = [t for t in tasks_for_plan if t.priority >= min_priority]
+
+        if not tasks_for_plan:
+            st.warning(
+                "No tasks match your Build Schedule filters. "
+                "Try expanding scope or lowering minimum priority."
+            )
+            st.stop()
+
+        # Re-surface any conflicts for the chosen planning scope.
+        for warning in view.detect_conflicts(tasks_for_plan):
             st.warning(warning.replace("WARNING: ", ""))
 
         day = None if day_of_week == "Any day" else day_of_week
-        plan = Scheduler(st.session_state.owner, all_tasks).build_plan(day_of_week=day)
+        planner = Scheduler(
+            st.session_state.owner,
+            tasks_for_plan,
+            buffer_minutes=int(buffer_minutes),
+        )
+        plan = planner.build_plan(day_of_week=day)
+
+        st.caption(
+            f"Scope: {plan_scope} | Min priority: {priority_floor} | Buffer: {buffer_minutes} min"
+        )
 
         st.markdown("### 🗓️ Today's Plan")
         if plan.scheduled:

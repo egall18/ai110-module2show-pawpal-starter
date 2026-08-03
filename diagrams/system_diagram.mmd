@@ -1,0 +1,21 @@
+flowchart LR
+    U[Human user] --> UI[Streamlit UI\napp.py]
+    UI --> C[Context builder\n_build_pet_context()]
+    C --> R[AI router + guardrails\napp.py + ai_reliability.py]
+    R --> G[Gemini]
+    R --> O[OpenAI]
+    R --> A[Claude]
+    G --> Q[Output quality check]
+    O --> Q
+    A --> Q
+    Q -->|passes| OUT[AI answer shown in UI]
+    Q -->|fails| F[Deterministic fallback\nScheduler summary]
+    R -->|all fail| F
+    F --> OUT
+    OUT --> H[Human review\nreads answer and plan]
+
+    T[Automated tests\npytest + ai_eval.py] --> R
+    T --> Q
+    T --> F
+    T --> D[Developer checks\nlogs + README examples]
+    D --> H

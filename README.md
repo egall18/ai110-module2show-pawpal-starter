@@ -2,6 +2,10 @@
 
 You are building **PawPal+**, a Streamlit app that helps a pet owner plan care tasks for their pet.
 
+## Demo
+
+![PawPal Demo](assets/CodePathFinalProject.gif)
+
 ## Scenario
 
 A busy pet owner needs help staying consistent with pet care. They want an assistant that can:
